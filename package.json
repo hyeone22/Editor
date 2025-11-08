@@ -1,0 +1,24 @@
+{
+  "name": "editor-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev:frontend": "npm --workspace frontend run dev",
+    "dev:backend": "npm --workspace backend run dev",
+    "build": "npm --workspace frontend run build && npm --workspace backend run build",
+    "lint": "eslint \"{frontend,backend}/src/**/*.{ts,tsx,js,jsx}\"",
+    "format": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "test": "npm run lint"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.2.5"
+  }
+}

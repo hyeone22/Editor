@@ -156,51 +156,29 @@ button:hover {
   padding: 0.75rem 1rem;
 }
 
-.editor-toolbar {
+.editor-widget-actions {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  border-radius: 0.75rem;
-  border: 1px solid #e2e8f0;
-  background: #f1f5f9;
+  align-items: flex-start;
 }
 
-.editor-toolbar__heading {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+.editor-widget-actions__button {
+  background-color: #0f766e;
 }
 
-.editor-toolbar__label {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #0f172a;
+.editor-widget-actions__button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
-.editor-toolbar__description {
+.editor-widget-actions__button:not(:disabled):hover {
+  background-color: #115e59;
+}
+
+.editor-widget-actions__hint {
   font-size: 0.85rem;
-  color: #475569;
-}
-
-.editor-toolbar__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.editor-toolbar__chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.3rem 0.85rem;
-  border-radius: 9999px;
-  background: #e2e8f0;
-  color: #1e293b;
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  color: #334155;
 }
 
 .text-widget {

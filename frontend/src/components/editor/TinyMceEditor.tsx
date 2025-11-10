@@ -1,7 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import EditorToolbar from '../EditorToolbar';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ensureWidgetPlugin } from '../../plugins/widgetPlugin';
-import { ensureWidgetInsertMenuPlugin } from '../../plugins/widgetInsertMenu';
 
 // 커스텀 위젯 렌더러 등록 (Text, Table, Graph, Page Break)
 import '../widgets/TextWidget';
@@ -163,6 +161,95 @@ const TinyMceEditor = () => {
     [sampleTextWidgetConfig, sampleTableWidgetConfig, sampleGraphWidgetConfig],
   );
 
+  // 텍스트 위젯 삽입(테스트용)
+  const handleInsertTextWidget = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const config = {
+      content: '<p>새 텍스트 위젯 내용을 입력하세요.</p>',
+      richText: true,
+      style: { alignment: 'left', lineHeight: 1.6 },
+    };
+    const serialised = JSON.stringify(config).replace(/'/g, '&#39;');
+    editor.insertContent(
+      `<div data-widget-type="text" data-widget-title="새 텍스트" data-widget-config='${serialised}'></div>`,
+    );
+    editor.focus?.();
+  }, []);
+
+  // 테이블 위젯 삽입(테스트용)
+  const handleInsertTableWidget = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const cfg = {
+      showHeader: true,
+      responsive: true,
+      columns: [
+        { id: 'q', label: '분기', align: 'left', format: 'text' },
+        { id: 'rev', label: '매출', align: 'right', format: 'currency' },
+      ],
+      rows: [
+        {
+          id: 'r1',
+          cells: [
+            { columnId: 'q', value: '2024 Q3' },
+            { columnId: 'rev', value: 16_000_000 },
+          ],
+        },
+      ],
+      summary: [{ label: '합계', value: '$16.0M', align: 'right' }],
+      footnote: '테스트 삽입',
+    };
+    const payload = JSON.stringify(cfg).replace(/'/g, '&#39;');
+    editor.insertContent(
+      `<div data-widget-type="table" data-widget-title="테스트 테이블" data-widget-config='${payload}'></div>`,
+    );
+    editor.focus?.();
+  }, []);
+
+  // 그래프 위젯 삽입(테스트용)
+  const handleInsertGraphWidget = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const config = {
+      chartType: 'bar',
+      labels: ['제품 A', '제품 B', '제품 C'],
+      datasets: [
+        {
+          id: 'sales',
+          label: '매출',
+          data: [120, 95, 135],
+          backgroundColor: 'rgba(99, 102, 241, 0.35)',
+          borderColor: 'rgba(99, 102, 241, 1)',
+        },
+      ],
+      options: {
+        legend: true,
+        showGrid: true,
+        yAxisLabel: '단위: 억원',
+      },
+    };
+    const payload = JSON.stringify(config).replace(/'/g, '&#39;');
+    editor.insertContent(
+      `<div data-widget-type="graph" data-widget-title="제품별 매출" data-widget-config='${payload}'></div>`,
+    );
+    editor.focus?.();
+  }, []);
+
+  // 페이지 나누기 위젯 삽입(테스트용)
+  const handleInsertPageBreakWidget = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    editor.insertContent(
+      '<div data-widget-type="pageBreak" data-widget-title="페이지 나누기"></div>',
+    );
+    editor.focus?.();
+  }, []);
+
   // 에디터 내용 CSS (테이블 위젯용 기본 스타일 포함)
   const contentStyle = useMemo(
     () =>
@@ -234,15 +321,14 @@ const TinyMceEditor = () => {
       try {
         /* eslint-disable @typescript-eslint/no-explicit-any */
         ensureWidgetPlugin(window.tinymce as any);
-        ensureWidgetInsertMenuPlugin(window.tinymce as any);
         /* eslint-enable */
 
         const result = await window.tinymce.init({
           target,
           menubar: false,
-          plugins: 'lists link table code widgetBlocks widgetInsertMenu',
+          plugins: 'lists link table code widgetBlocks',
           toolbar:
-            'widgetInsertMenu | undo redo | blocks | bold italic underline | alignleft aligncenter alignright | bullist numlist outdent indent | table | link | code',
+            'undo redo | blocks | bold italic underline | alignleft aligncenter alignright | bullist numlist outdent indent | table | link | code',
           height: 480,
           branding: false,
           resize: true,
@@ -351,8 +437,6 @@ const TinyMceEditor = () => {
 
   return (
     <div className="tiny-editor">
-      <EditorToolbar status={status} />
-
       {status !== 'ready' && (
         <p className={`editor-status editor-status--${status}`}>
           {status === 'loading' && 'TinyMCE 스크립트를 불러오는 중입니다...'}
@@ -362,6 +446,22 @@ const TinyMceEditor = () => {
       )}
 
       <textarea ref={textareaRef} defaultValue={initialContent} aria-label="보고서 에디터" />
+
+      <div className="editor-widget-actions" style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+        <button type="button" onClick={handleInsertTextWidget} disabled={status !== 'ready'}>
+          텍스트 위젯 삽입
+        </button>
+        <button type="button" onClick={handleInsertTableWidget} disabled={status !== 'ready'}>
+          테이블 위젯 삽입
+        </button>
+        <button type="button" onClick={handleInsertGraphWidget} disabled={status !== 'ready'}>
+          그래프 위젯 삽입
+        </button>
+        <button type="button" onClick={handleInsertPageBreakWidget} disabled={status !== 'ready'}>
+          페이지 나누기 삽입
+        </button>
+        <span style={{ color: '#64748b' }}>위젯을 더블클릭(또는 Enter/Space)하면 편집합니다.</span>
+      </div>
 
       {apiKey === DEFAULT_API_KEY && (
         <p className="editor-helper" style={{ marginTop: 8, color: '#475569' }}>

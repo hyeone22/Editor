@@ -11,7 +11,9 @@ interface TinyMceInstance {
 }
 
 interface TinyMceGlobal {
-  init: (config: Record<string, unknown>) => Promise<TinyMceInstance | TinyMceInstance[]> | TinyMceInstance | TinyMceInstance[];
+  init: (
+    config: Record<string, unknown>,
+  ) => Promise<TinyMceInstance | TinyMceInstance[]> | TinyMceInstance | TinyMceInstance[];
 }
 
 declare global {
@@ -25,7 +27,8 @@ const TinyMceEditor = () => {
   const editorRef = useRef<TinyMceInstance | null>(null);
   const [status, setStatus] = useState<EditorStatus>('loading');
 
-  const apiKey = (import.meta.env.VITE_TINYMCE_API_KEY ?? DEFAULT_API_KEY).trim() || DEFAULT_API_KEY;
+  const apiKey =
+    (import.meta.env.VITE_TINYMCE_API_KEY ?? DEFAULT_API_KEY).trim() || DEFAULT_API_KEY;
 
   const initialContent = useMemo(
     () =>
@@ -126,6 +129,10 @@ const TinyMceEditor = () => {
       script.addEventListener('error', handleScriptError);
       document.head.appendChild(script);
     }
+    console.log('apiKey:', apiKey);
+    console.log('src:', `https://cdn.tiny.cloud/1/${apiKey}/tinymce/6/tinymce.min.js`);
+    console.log('ALL ENV', import.meta.env);
+    console.log('API', import.meta.env.VITE_TINYMCE_API_KEY);
 
     return () => {
       isMounted = false;
@@ -143,7 +150,8 @@ const TinyMceEditor = () => {
       {status !== 'ready' && (
         <p className={`editor-status editor-status--${status}`}>
           {status === 'loading' && 'TinyMCE 스크립트를 불러오는 중입니다...'}
-          {status === 'error' && '에디터를 초기화하지 못했습니다. 네트워크와 API 키 설정을 확인해주세요.'}
+          {status === 'error' &&
+            '에디터를 초기화하지 못했습니다. 네트워크와 API 키 설정을 확인해주세요.'}
         </p>
       )}
 
@@ -151,8 +159,9 @@ const TinyMceEditor = () => {
 
       {apiKey === DEFAULT_API_KEY && (
         <p className="editor-helper">
-          <strong>안내:</strong> 현재 기본 공개 키(<code>{DEFAULT_API_KEY}</code>)로 TinyMCE CDN을 사용하고 있습니다. 별도의 Tiny Cloud API 키가
-          있다면 <code>VITE_TINYMCE_API_KEY</code> 환경 변수를 설정해 주세요.
+          <strong>안내:</strong> 현재 기본 공개 키(<code>{DEFAULT_API_KEY}</code>)로 TinyMCE CDN을
+          사용하고 있습니다. 별도의 Tiny Cloud API 키가 있다면 <code>VITE_TINYMCE_API_KEY</code>{' '}
+          환경 변수를 설정해 주세요.
         </p>
       )}
     </div>

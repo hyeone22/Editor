@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchHealth } from './api/health';
 import TinyMceEditor from './components/editor/TinyMceEditor';
 import ChartShowcase from './components/charts/ChartShowcase';
+import DataBinderPanel from './components/panels/DataBinderPanel';
+import { DataBinderProvider } from './store/dataBinderStore';
 
 type HealthState =
   | { status: 'idle' | 'loading' }
@@ -42,17 +44,18 @@ const App = () => {
   }, [health]);
 
   return (
-    <main>
-      <section>
+    <DataBinderProvider>
+      <main>
+        <section>
         <h1>에디터 프로젝트 초기화</h1>
         <p>
           이 화면은 <code>checklist.md</code> 1번 항목인 "프로젝트 초기 설정 및 환경 구축"의 결과물입니다. 루트에서는
           공통 Lint/Format 스크립트를 제공하며, 프론트엔드와 백엔드는 각각 Vite + React, Express 기반으로 구성되어
           있습니다.
         </p>
-      </section>
+        </section>
 
-      <section className="status-card">
+        <section className="status-card">
         <h2>{title}</h2>
         {health.status === 'loading' && <span className="status-indicator">확인 중...</span>}
         {health.status === 'success' && (
@@ -72,17 +75,28 @@ const App = () => {
             다시 확인
           </button>
         </div>
-      </section>
-      <section className="editor-card">
+        </section>
+        <section className="editor-card">
         <h2>TinyMCE 에디터 미리보기</h2>
         <p>
           기본 TinyMCE 인스턴스를 React 애플리케이션과 연동했습니다. 아래 편집기에서 서식 버튼을 눌러 보고, Tiny Cloud API
           키를 설정하면 정식 CDN을 통해 스크립트를 로드할 수 있습니다.
         </p>
         <TinyMceEditor />
-      </section>
-      <ChartShowcase />
-    </main>
+        </section>
+
+        <section className="binder-card">
+          <h2>데이터 매핑 패널 목업</h2>
+          <p>
+            위젯을 선택하면 오른쪽 패널이 해당 위젯의 데이터 소스 정보와 매핑 필드를 갱신하도록 구성했습니다. 실제 구현 시에는
+            TinyMCE 선택 이벤트와 연동되어, 편집 중인 위젯의 데이터 상태를 즉시 확인할 수 있습니다.
+          </p>
+          <DataBinderPanel />
+        </section>
+
+        <ChartShowcase />
+      </main>
+    </DataBinderProvider>
   );
 };
 

@@ -198,6 +198,139 @@ button:hover {
   outline-offset: 2px;
 }
 
+.table-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #cbd5f5;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.12);
+}
+
+.table-widget__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.table-widget__table-container {
+  border-radius: 0.65rem;
+  background: #ffffff;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
+.table-widget__table-container--responsive {
+  overflow-x: auto;
+}
+
+.table-widget__table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 320px;
+}
+
+.table-widget__table thead {
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.08), rgba(37, 99, 235, 0.08));
+  color: #0f172a;
+}
+
+.table-widget__table th,
+.table-widget__table td {
+  padding: 0.75rem 0.85rem;
+  font-size: 0.95rem;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: middle;
+}
+
+.table-widget__table tbody tr:nth-child(even) {
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.table-widget__table tbody tr:hover {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.table-widget__cell--align-left {
+  text-align: left;
+}
+
+.table-widget__cell--align-center {
+  text-align: center;
+}
+
+.table-widget__cell--align-right {
+  text-align: right;
+}
+
+.table-widget__header--primary {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.table-widget__header--secondary {
+  color: #0f172a;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.table-widget__header--muted {
+  color: #475569;
+  font-weight: 500;
+}
+
+.table-widget__cell--positive {
+  color: #047857;
+  font-weight: 600;
+}
+
+.table-widget__cell--negative {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.table-widget__cell--neutral {
+  color: #334155;
+}
+
+.table-widget__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  background: rgba(14, 116, 144, 0.08);
+  border-radius: 0.65rem;
+  padding: 0.75rem 1rem;
+}
+
+.table-widget__summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.table-widget__summary-label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  color: #0f172a;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+.table-widget__summary-value {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.table-widget__footnote {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
 .text-widget__content {
   font-size: 1rem;
   color: #0f172a;

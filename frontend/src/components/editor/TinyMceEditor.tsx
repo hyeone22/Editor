@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ensureWidgetPlugin } from '../../plugins/widgetPlugin';
 import '../widgets/TextWidget';
+import '../widgets/TableWidget';
 
 type EditorStatus = 'loading' | 'ready' | 'error';
 
@@ -14,6 +15,8 @@ interface TinyMcePluginManager {
 interface TinyMceEvent {
   target?: Element | null;
   key?: string;
+  preventDefault?: () => void;
+  stopPropagation?: () => void;
 }
 
 interface TinyMceInstance {
@@ -68,6 +71,46 @@ const TinyMceEditor = () => {
     return JSON.stringify(config).replace(/'/g, '&#39;');
   }, []);
 
+  const sampleTableWidgetConfig = useMemo(() => {
+    const config = {
+      showHeader: true,
+      responsive: true,
+      columns: [
+        { id: 'col-quarter', label: '분기', align: 'left', format: 'text' },
+        { id: 'col-revenue', label: '매출 (USD)', align: 'right', format: 'currency' },
+        { id: 'col-growth', label: '성장률', align: 'right', format: 'percent' },
+      ],
+      rows: [
+        {
+          id: 'row-q1',
+          cells: [
+            { columnId: 'col-quarter', value: '2024 Q1' },
+            { columnId: 'col-revenue', value: 12500000 },
+            { columnId: 'col-growth', value: 0.12 },
+          ],
+        },
+        {
+          id: 'row-q2',
+          cells: [
+            { columnId: 'col-quarter', value: '2024 Q2' },
+            { columnId: 'col-revenue', value: 14800000 },
+            { columnId: 'col-growth', value: 0.18 },
+          ],
+        },
+      ],
+      summary: [
+        {
+          label: '연간 누적',
+          value: '$27.3M',
+          align: 'right',
+        },
+      ],
+      footnote: '※ 모든 수치는 미감사 자료 기준입니다.',
+    };
+
+    return JSON.stringify(config).replace(/'/g, '&#39;');
+  }, []);
+
   const initialContent = useMemo(
     () =>
       [
@@ -77,9 +120,10 @@ const TinyMceEditor = () => {
         '<li><strong>굵게</strong>, <em>기울임꼴</em>, <u>밑줄</u>과 같은 서식을 적용해 보세요.</li>',
         '<li>목록, 링크, 표 등 TinyMCE 기본 기능이 정상 동작하는지 확인할 수 있습니다.</li>',
         '</ul>',
+        `<div data-widget-type="table" data-widget-title="분기별 매출" data-widget-config='${sampleTableWidgetConfig}'></div>`,
         `<div data-widget-type="text" data-widget-title="보고서 요약" data-widget-config='${sampleTextWidgetConfig}'></div>`,
       ].join(''),
-    [sampleTextWidgetConfig],
+    [sampleTextWidgetConfig, sampleTableWidgetConfig],
   );
 
   const handleInsertTextWidget = useCallback(() => {
@@ -180,48 +224,44 @@ const TinyMceEditor = () => {
                   }
                 };
                 // ✅ 캡처 단계에서 먼저 가로채기
-                doc.addEventListener('dblclick', handleNativeDblClick, { capture: true });
+                  doc.addEventListener('dblclick', handleNativeDblClick, true);
 
-                const handleClick = (event: MouseEvent) => {
-                  if ((event as any).detail === 2) handleNativeDblClick(event);
-                };
-                doc.addEventListener('click', handleClick, { capture: true });
+                  const handleClick = (event: MouseEvent) => {
+                    if (event.detail === 2) handleNativeDblClick(event);
+                  };
+                  doc.addEventListener('click', handleClick, true);
 
-                editor.on('remove', () => {
-                  doc.removeEventListener('dblclick', handleNativeDblClick, {
-                    capture: true,
-                  } as any);
-                  doc.removeEventListener('click', handleClick, { capture: true } as any);
-                });
+                  editor.on('remove', () => {
+                    doc.removeEventListener('dblclick', handleNativeDblClick, true);
+                    doc.removeEventListener('click', handleClick, true);
+                  });
 
-                // ✅ 위젯 변경 감지 → TinyMCE에 변경 상태 반영
-                const handleWidgetChanged = () => {
-                  editor.fire?.('change');
-                  (editor as any).setDirty?.(true);
-                  editor.nodeChanged?.();
-                };
+                  // ✅ 위젯 변경 감지 → TinyMCE에 변경 상태 반영
+                  const handleWidgetChanged = () => {
+                    editor.fire?.('change');
+                    editor.setDirty?.(true);
+                    editor.nodeChanged?.();
+                  };
 
-                doc.addEventListener('widget:changed', handleWidgetChanged, { capture: true });
+                  doc.addEventListener('widget:changed', handleWidgetChanged, true);
 
-                editor.on('remove', () => {
-                  doc.removeEventListener('widget:changed', handleWidgetChanged, {
-                    capture: true,
-                  } as any);
-                });
-              }
-            }); // ✅ ← 여기서 init 끝남!
+                  editor.on('remove', () => {
+                    doc.removeEventListener('widget:changed', handleWidgetChanged, true);
+                  });
+                }
+              }); // ✅ ← 여기서 init 끝남!
 
-            // ✅ 키보드 접근성 (Enter/Space)
-            editor.on('KeyDown', (e: any) => {
-              if (e.key !== 'Enter' && e.key !== ' ') return;
-              const anchor = editor.selection?.getNode?.();
-              const host = anchor?.closest?.('[data-widget-type]');
-              if (host) {
-                host.dispatchEvent(new CustomEvent('widget:edit', { bubbles: true }));
-                e.preventDefault?.();
-                e.stopPropagation?.();
-              }
-            });
+              // ✅ 키보드 접근성 (Enter/Space)
+              editor.on('KeyDown', (event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                const anchor = editor.selection?.getNode?.();
+                const host = anchor?.closest?.('[data-widget-type]');
+                if (host) {
+                  host.dispatchEvent(new CustomEvent('widget:edit', { bubbles: true }));
+                  event.preventDefault?.();
+                  event.stopPropagation?.();
+                }
+              });
           },
         });
 

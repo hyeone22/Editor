@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ensureWidgetPlugin } from '../../plugins/widgetPlugin';
+
+// 커스텀 위젯 렌더러 등록 (Text, Table)
 import '../widgets/TextWidget';
 import '../widgets/TableWidget';
 
@@ -28,8 +30,9 @@ interface TinyMceInstance {
     getNode?: () => HTMLElement | null;
     getRng?: () => Range | null;
   };
-  getBody?: () => HTMLElement | null; // ✅ 추가
-  // ✅ TinyMCE 내부 API 일부
+  getBody?: () => HTMLElement | null;
+
+  // TinyMCE 내부 API(존재하면 사용)
   fire?: (eventName: string, data?: Record<string, unknown>) => void;
   nodeChanged?: () => void;
   setDirty?: (state: boolean) => void;
@@ -56,6 +59,7 @@ const TinyMceEditor = () => {
   const apiKey =
     (import.meta.env.VITE_TINYMCE_API_KEY ?? DEFAULT_API_KEY).trim() || DEFAULT_API_KEY;
 
+  // 샘플 텍스트 위젯 설정
   const sampleTextWidgetConfig = useMemo(() => {
     const config = {
       content:
@@ -67,10 +71,10 @@ const TinyMceEditor = () => {
         lineHeight: 1.6,
       },
     };
-
     return JSON.stringify(config).replace(/'/g, '&#39;');
   }, []);
 
+  // 샘플 테이블 위젯 설정
   const sampleTableWidgetConfig = useMemo(() => {
     const config = {
       showHeader: true,
@@ -85,7 +89,7 @@ const TinyMceEditor = () => {
           id: 'row-q1',
           cells: [
             { columnId: 'col-quarter', value: '2024 Q1' },
-            { columnId: 'col-revenue', value: 12500000 },
+            { columnId: 'col-revenue', value: 12_500_000 },
             { columnId: 'col-growth', value: 0.12 },
           ],
         },
@@ -93,21 +97,14 @@ const TinyMceEditor = () => {
           id: 'row-q2',
           cells: [
             { columnId: 'col-quarter', value: '2024 Q2' },
-            { columnId: 'col-revenue', value: 14800000 },
+            { columnId: 'col-revenue', value: 14_800_000 },
             { columnId: 'col-growth', value: 0.18 },
           ],
         },
       ],
-      summary: [
-        {
-          label: '연간 누적',
-          value: '$27.3M',
-          align: 'right',
-        },
-      ],
+      summary: [{ label: '연간 누적', value: '$27.3M', align: 'right' }],
       footnote: '※ 모든 수치는 미감사 자료 기준입니다.',
     };
-
     return JSON.stringify(config).replace(/'/g, '&#39;');
   }, []);
 
@@ -126,51 +123,85 @@ const TinyMceEditor = () => {
     [sampleTextWidgetConfig, sampleTableWidgetConfig],
   );
 
+  // 텍스트 위젯 삽입(테스트용)
   const handleInsertTextWidget = useCallback(() => {
     const editor = editorRef.current;
-    if (!editor) {
-      return;
-    }
+    if (!editor) return;
 
     const config = {
       content: '<p>새 텍스트 위젯 내용을 입력하세요.</p>',
       richText: true,
-      style: {
-        alignment: 'left',
-        lineHeight: 1.6,
-      },
+      style: { alignment: 'left', lineHeight: 1.6 },
     };
-
     const serialised = JSON.stringify(config).replace(/'/g, '&#39;');
-    const widgetHtml = `<div data-widget-type="text" data-widget-title="새 텍스트" data-widget-config='${serialised}'></div>`;
-    editor.insertContent(widgetHtml);
+    editor.insertContent(
+      `<div data-widget-type="text" data-widget-title="새 텍스트" data-widget-config='${serialised}'></div>`,
+    );
     editor.focus?.();
   }, []);
 
+  // 테이블 위젯 삽입(테스트용)
+  const handleInsertTableWidget = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const cfg = {
+      showHeader: true,
+      responsive: true,
+      columns: [
+        { id: 'q', label: '분기', align: 'left', format: 'text' },
+        { id: 'rev', label: '매출', align: 'right', format: 'currency' },
+      ],
+      rows: [
+        {
+          id: 'r1',
+          cells: [
+            { columnId: 'q', value: '2024 Q3' },
+            { columnId: 'rev', value: 16_000_000 },
+          ],
+        },
+      ],
+      summary: [{ label: '합계', value: '$16.0M', align: 'right' }],
+      footnote: '테스트 삽입',
+    };
+    const payload = JSON.stringify(cfg).replace(/'/g, '&#39;');
+    editor.insertContent(
+      `<div data-widget-type="table" data-widget-title="테스트 테이블" data-widget-config='${payload}'></div>`,
+    );
+    editor.focus?.();
+  }, []);
+
+  // 에디터 내용 CSS (테이블 위젯용 기본 스타일 포함)
   const contentStyle = useMemo(
     () =>
       [
         "body { font-family: 'Noto Sans KR', system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 16px; color: #0f172a; }",
+        // 공통 위젯 박스
         '.widget-block { display: block; border: 1px dashed #94a3b8; border-radius: 12px; padding: 16px; background: #f8fafc; position: relative; }',
-        '.widget-block__placeholder { display: flex; align-items: center; justify-content: space-between; font-size: 0.95rem; color: #334155; gap: 0.75rem; }',
-        '.widget-block__label { font-weight: 600; }',
-        '.widget-block__type { font-size: 0.75rem; background: #e2e8f0; color: #0f172a; border-radius: 9999px; padding: 0.25rem 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }',
+        // 테이블 위젯
+        '.table-widget__title{font-weight:700;font-size:18px;margin:8px 0 12px}',
+        '.table-widget__table{width:100%;border-collapse:collapse}',
+        '.table-widget__table thead th{font-weight:600;border-bottom:2px solid #cbd5e1;padding:8px 10px;text-align:left}',
+        '.table-widget__table tbody td{padding:8px 10px;border-bottom:1px solid #e2e8f0;vertical-align:top}',
+        '.table-widget__table-container--responsive{overflow-x:auto}',
+        '.table-widget__cell--align-right{text-align:right}',
+        '.table-widget__cell--align-left{text-align:left}',
+        '.table-widget__cell--align-center{text-align:center}',
+        '.table-widget__summary{display:grid;gap:4px;margin-top:8px}',
+        '.table-widget__summary .table-widget__summary-item{display:flex;justify-content:space-between}',
+        '.table-widget__summary-label{color:#334155}',
+        '.table-widget__summary-value{}',
+        '.table-widget__footnote{color:#475569;font-size:12px;margin-top:6px}',
       ].join('\n'),
     [],
   );
 
   useEffect(() => {
     const target = textareaRef.current;
-    if (!target) {
-      return;
-    }
+    if (!target) return;
 
     let isMounted = true;
-    const setStatusSafe = (value: EditorStatus) => {
-      if (isMounted) {
-        setStatus(value);
-      }
-    };
+    const setStatusSafe = (v: EditorStatus) => isMounted && setStatus(v);
 
     setStatusSafe('loading');
 
@@ -188,8 +219,10 @@ const TinyMceEditor = () => {
       }
 
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        /* eslint-disable @typescript-eslint/no-explicit-any */
         ensureWidgetPlugin(window.tinymce as any);
+        /* eslint-enable */
+
         const result = await window.tinymce.init({
           target,
           menubar: false,
@@ -208,96 +241,78 @@ const TinyMceEditor = () => {
             editor.on('init', () => {
               setStatusSafe('ready');
 
-              // ✅ iframe 내부의 native 더블클릭 이벤트를 직접 감지 (TinyMCE 내부 가로채기 우회)
-              // ✅ iframe/inline 모두 대응
+              // 더블클릭을 네이티브로 먼저 가로채서 widget:edit 트리거
               const body = editor.getBody?.();
               const doc = body?.ownerDocument;
-
               if (doc) {
-                const handleNativeDblClick = (event: MouseEvent) => {
-                  const target = event.target as HTMLElement | null;
-                  const host = target?.closest?.('[data-widget-type]');
+                const handleDbl = (ev: MouseEvent) => {
+                  const t = ev.target as HTMLElement | null;
+                  const host = t?.closest?.('[data-widget-type]');
                   if (host) {
                     host.dispatchEvent(new CustomEvent('widget:edit', { bubbles: true }));
-                    event.preventDefault();
-                    event.stopPropagation();
+                    ev.preventDefault();
+                    ev.stopPropagation();
                   }
                 };
-                // ✅ 캡처 단계에서 먼저 가로채기
-                  doc.addEventListener('dblclick', handleNativeDblClick, true);
+                const handleClick = (ev: MouseEvent) => {
+                  if (ev.detail === 2) handleDbl(ev);
+                };
 
-                  const handleClick = (event: MouseEvent) => {
-                    if (event.detail === 2) handleNativeDblClick(event);
-                  };
-                  doc.addEventListener('click', handleClick, true);
+                doc.addEventListener('dblclick', handleDbl, true);
+                doc.addEventListener('click', handleClick, true);
 
-                  editor.on('remove', () => {
-                    doc.removeEventListener('dblclick', handleNativeDblClick, true);
-                    doc.removeEventListener('click', handleClick, true);
-                  });
+                // 변경 감지 → TinyMCE에 dirty/state 전달
+                const handleWidgetChanged = () => {
+                  editor.fire?.('change');
+                  editor.setDirty?.(true);
+                  editor.nodeChanged?.();
+                };
+                doc.addEventListener('widget:changed', handleWidgetChanged, true);
 
-                  // ✅ 위젯 변경 감지 → TinyMCE에 변경 상태 반영
-                  const handleWidgetChanged = () => {
-                    editor.fire?.('change');
-                    editor.setDirty?.(true);
-                    editor.nodeChanged?.();
-                  };
+                editor.on('remove', () => {
+                  doc.removeEventListener('dblclick', handleDbl, true);
+                  doc.removeEventListener('click', handleClick, true);
+                  doc.removeEventListener('widget:changed', handleWidgetChanged, true);
+                });
+              }
+            });
 
-                  doc.addEventListener('widget:changed', handleWidgetChanged, true);
-
-                  editor.on('remove', () => {
-                    doc.removeEventListener('widget:changed', handleWidgetChanged, true);
-                  });
-                }
-              }); // ✅ ← 여기서 init 끝남!
-
-              // ✅ 키보드 접근성 (Enter/Space)
-              editor.on('KeyDown', (event) => {
-                if (event.key !== 'Enter' && event.key !== ' ') return;
-                const anchor = editor.selection?.getNode?.();
-                const host = anchor?.closest?.('[data-widget-type]');
-                if (host) {
-                  host.dispatchEvent(new CustomEvent('widget:edit', { bubbles: true }));
-                  event.preventDefault?.();
-                  event.stopPropagation?.();
-                }
-              });
+            // 키보드 접근성: Enter/Space로 편집
+            editor.on('KeyDown', (ev) => {
+              if (ev.key !== 'Enter' && ev.key !== ' ') return;
+              const anchor = editor.selection?.getNode?.();
+              const host = anchor?.closest?.('[data-widget-type]');
+              if (host) {
+                host.dispatchEvent(new CustomEvent('widget:edit', { bubbles: true }));
+                ev.preventDefault?.();
+                ev.stopPropagation?.();
+              }
+            });
           },
         });
 
         const instance = Array.isArray(result) ? result[0] : result;
-        if (instance) {
-          editorRef.current = instance;
-        } else {
-          setStatusSafe('error');
-        }
-      } catch (error) {
-        console.error('TinyMCE 초기화 중 오류가 발생했습니다.', error);
+        if (instance) editorRef.current = instance;
+        else setStatusSafe('error');
+      } catch (e) {
+        console.error('TinyMCE 초기화 오류', e);
         setStatusSafe('error');
       }
     };
 
-    // TinyMCE 채널 버전을 명시적으로 지정
-    const CHANNEL = 'stable'; // 또는 '6' 혹은 '6.8.5' 같은 구체 버전
-
+    // TinyMCE 채널 고정 (안정적 로딩)
+    const CHANNEL = 'stable';
     const scriptUrl = `https://cdn.tiny.cloud/1/${apiKey}/tinymce/${CHANNEL}/tinymce.min.js`;
 
-    const handleScriptLoad = () => {
-      void initialiseEditor();
-    };
+    const handleScriptLoad = () => void initialiseEditor();
+    const handleScriptError = () => setStatusSafe('error');
 
-    const handleScriptError = () => {
-      setStatusSafe('error');
-    };
-
-    const existingScript = document.getElementById(TINYMCE_SCRIPT_ID) as HTMLScriptElement | null;
-
-    if (existingScript) {
-      if (window.tinymce) {
-        void initialiseEditor();
-      } else {
-        existingScript.addEventListener('load', handleScriptLoad);
-        existingScript.addEventListener('error', handleScriptError);
+    const existing = document.getElementById(TINYMCE_SCRIPT_ID) as HTMLScriptElement | null;
+    if (existing) {
+      if (window.tinymce) void initialiseEditor();
+      else {
+        existing.addEventListener('load', handleScriptLoad);
+        existing.addEventListener('error', handleScriptError);
       }
     } else {
       const script = document.createElement('script');
@@ -308,18 +323,14 @@ const TinyMceEditor = () => {
       script.addEventListener('error', handleScriptError);
       document.head.appendChild(script);
     }
-    console.log('apiKey:', apiKey);
-    console.log('src:', `https://cdn.tiny.cloud/1/${apiKey}/tinymce/6/tinymce.min.js`);
-    console.log('ALL ENV', import.meta.env);
-    console.log('API', import.meta.env.VITE_TINYMCE_API_KEY);
 
     return () => {
       isMounted = false;
       cleanup();
-      const scriptElement = document.getElementById(TINYMCE_SCRIPT_ID);
-      if (scriptElement) {
-        scriptElement.removeEventListener('load', handleScriptLoad);
-        scriptElement.removeEventListener('error', handleScriptError);
+      const el = document.getElementById(TINYMCE_SCRIPT_ID);
+      if (el) {
+        el.removeEventListener('load', handleScriptLoad);
+        el.removeEventListener('error', handleScriptError);
       }
     };
   }, [apiKey, contentStyle]);
@@ -336,26 +347,21 @@ const TinyMceEditor = () => {
 
       <textarea ref={textareaRef} defaultValue={initialContent} aria-label="보고서 에디터" />
 
-      <div className="editor-widget-actions">
-        <button
-          type="button"
-          onClick={handleInsertTextWidget}
-          disabled={status !== 'ready'}
-          className="editor-widget-actions__button"
-        >
+      <div className="editor-widget-actions" style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+        <button type="button" onClick={handleInsertTextWidget} disabled={status !== 'ready'}>
           텍스트 위젯 삽입
         </button>
-        <span className="editor-widget-actions__hint">
-          TinyMCE 상단 도구와 함께 커스텀 텍스트 위젯을 추가하고, 위젯을 더블 클릭하여 내용을 편집할
-          수 있습니다.
-        </span>
+        <button type="button" onClick={handleInsertTableWidget} disabled={status !== 'ready'}>
+          테이블 위젯 삽입
+        </button>
+        <span style={{ color: '#64748b' }}>위젯을 더블클릭(또는 Enter/Space)하면 편집합니다.</span>
       </div>
 
       {apiKey === DEFAULT_API_KEY && (
-        <p className="editor-helper">
+        <p className="editor-helper" style={{ marginTop: 8, color: '#475569' }}>
           <strong>안내:</strong> 현재 기본 공개 키(<code>{DEFAULT_API_KEY}</code>)로 TinyMCE CDN을
-          사용하고 있습니다. 별도의 Tiny Cloud API 키가 있다면 <code>VITE_TINYMCE_API_KEY</code>{' '}
-          환경 변수를 설정해 주세요.
+          사용 중입니다. 별도 Tiny Cloud API 키가 있다면 <code>VITE_TINYMCE_API_KEY</code> 환경
+          변수를 설정해 주세요.
         </p>
       )}
     </div>

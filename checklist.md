@@ -2,7 +2,7 @@
 - 파일/폴더 영향: /backend, /frontend, package.json, ESLint/Prettier 설정 파일
 - 예상 테스트: 로컬 서버·클라이언트 실행, 기본 API 호출 및 화면 렌더링 수동 검증
 
-- [ ] (2) TinyMCE 에디터 기본 연동 — TinyMCE 에디터가 렌더링되고 기본 편집 기능이 정상 동작함을 확인
+- [x] (2) TinyMCE 에디터 기본 연동 — TinyMCE 에디터가 렌더링되고 기본 편집 기능이 정상 동작함을 확인
 - 파일/폴더 영향: /frontend/src/components/Editor, 환경 변수 설정 파일
 - 예상 테스트: 브라우저에서 TinyMCE 로딩 및 텍스트 편집 수동 검증
 

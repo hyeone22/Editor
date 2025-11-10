@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchHealth } from './api/health';
 import TinyMceEditor from './components/editor/TinyMceEditor';
+import ChartShowcase from './components/charts/ChartShowcase';
 
 type HealthState =
   | { status: 'idle' | 'loading' }
@@ -80,6 +81,7 @@ const App = () => {
         </p>
         <TinyMceEditor />
       </section>
+      <ChartShowcase />
     </main>
   );
 };

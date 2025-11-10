@@ -1,4 +1,10 @@
-import { parseWidgetConfig, serialiseWidgetConfig, widgetRendererRegistry } from '../utils/widgetRenderer';
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
+
+import {
+  parseWidgetConfig,
+  serialiseWidgetConfig,
+  widgetRendererRegistry,
+} from '../utils/widgetRenderer';
 import type { WidgetRenderDescriptor, WidgetRendererRegistry } from '../utils/widgetRenderer';
 import type { WidgetType } from '../types/Widget';
 
@@ -7,7 +13,7 @@ const DEFAULT_WIDGET_SELECTOR = '[data-widget-type]';
 const DEFAULT_WIDGET_CLASSNAME = 'widget-block';
 
 interface TinyMcePluginManager {
-  add: (name: string, callback: (editor: TinyMceEditor) => void) => void;
+  add: (name: string, callback: (editor: TinyMceEditor, url: string) => void) => void;
 }
 
 interface TinyMceEditor {
@@ -16,7 +22,9 @@ interface TinyMceEditor {
   getBody: () => HTMLElement | null;
   schema: { addValidElements: (rule: string) => void };
   parser: { addNodeFilter: (selector: string, callback: (nodes: TinyMceNode[]) => void) => void };
-  serializer: { addNodeFilter: (selector: string, callback: (nodes: TinyMceNode[]) => void) => void };
+  serializer: {
+    addNodeFilter: (selector: string, callback: (nodes: TinyMceNode[]) => void) => void;
+  };
 }
 
 interface TinyMceNode {
@@ -86,12 +94,15 @@ const ensureWidgetId = (element: HTMLElement, order: number): string => {
     return existing;
   }
 
-  const generated = `widget-${Date.now()}-${widgetIdSequence += 1}-${order}`;
+  const generated = `widget-${Date.now()}-${(widgetIdSequence += 1)}-${order}`;
   element.setAttribute('data-widget-id', generated);
   return generated;
 };
 
-const parseWidgetDescriptor = (element: HTMLElement, order: number): WidgetRenderDescriptor | null => {
+const parseWidgetDescriptor = (
+  element: HTMLElement,
+  order: number,
+): WidgetRenderDescriptor | null => {
   const typeValue = element.getAttribute('data-widget-type');
   if (!typeValue) {
     return null;
@@ -190,28 +201,31 @@ export const ensureWidgetPlugin = (
     widgetClassName = DEFAULT_WIDGET_CLASSNAME,
   } = options;
 
-  tinyMCE.PluginManager.add(PLUGIN_NAME, (editor) => {
-    editor.on('PreInit', () => {
-      editor.schema.addValidElements(
-        'div[data-widget-type|data-widget-id|data-widget-config|data-widget-title|data-widget-version]',
-      );
+  tinyMCE.PluginManager.add(
+    PLUGIN_NAME,
+    function (editor: TinyMceEditor /*: any*/, _url: any /*: string*/) {
+      editor.on('PreInit', () => {
+        editor.schema.addValidElements(
+          'div[data-widget-type|data-widget-id|data-widget-config|data-widget-title|data-widget-version]',
+        );
 
-      editor.parser.addNodeFilter('div', (nodes) => {
-        toArray(nodes).forEach(normaliseWidgetAttributes);
+        editor.parser.addNodeFilter('div', (nodes: TinyMceNode[]) => {
+          toArray(nodes).forEach(normaliseWidgetAttributes);
+        });
+
+        editor.serializer.addNodeFilter('div', (nodes: TinyMceNode[]) => {
+          toArray(nodes).forEach(normaliseWidgetAttributes);
+        });
       });
 
-      editor.serializer.addNodeFilter('div', (nodes) => {
-        toArray(nodes).forEach(normaliseWidgetAttributes);
-      });
-    });
+      const refresh = () => refreshWidgetBlocks(editor, registry, widgetSelector, widgetClassName);
 
-    const refresh = () => refreshWidgetBlocks(editor, registry, widgetSelector, widgetClassName);
-
-    editor.on('init', refresh);
-    editor.on('SetContent', refresh);
-    editor.on('NodeChange', refresh);
-    editor.on('BeforeGetContent', refresh);
-  });
+      editor.on('init', refresh);
+      editor.on('SetContent', refresh);
+      editor.on('NodeChange', refresh);
+      editor.on('BeforeGetContent', refresh);
+    },
+  );
 
   isRegistered = true;
 };

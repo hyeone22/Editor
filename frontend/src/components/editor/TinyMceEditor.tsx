@@ -90,7 +90,8 @@ const TinyMceEditor = () => {
       }
 
       try {
-        ensureWidgetPlugin(window.tinymce);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ensureWidgetPlugin(window.tinymce as any);
         const result = await window.tinymce.init({
           target,
           menubar: false,
@@ -121,7 +122,10 @@ const TinyMceEditor = () => {
       }
     };
 
-    const scriptUrl = `https://cdn.tiny.cloud/1/${apiKey}/tinymce/6/tinymce.min.js`;
+    // TinyMCE 채널 버전을 명시적으로 지정
+    const CHANNEL = 'stable'; // 또는 '6' 혹은 '6.8.5' 같은 구체 버전
+
+    const scriptUrl = `https://cdn.tiny.cloud/1/${apiKey}/tinymce/${CHANNEL}/tinymce.min.js`;
 
     const handleScriptLoad = () => {
       void initialiseEditor();

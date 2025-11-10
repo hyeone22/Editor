@@ -26,7 +26,7 @@
 - 파일/폴더 영향: /frontend/package.json, /frontend/src/components/charts/
 - 예상 테스트: Storybook 또는 개발 서버에서 차트 렌더링 수동 확인
 
-- [ ] (8) 그래프 위젯 구현 — 그래프 위젯이 지정된 차트 유형으로 렌더링되고 편집 모드에서도 유지됨
+- [x] (8) 그래프 위젯 구현 — 그래프 위젯이 지정된 차트 유형으로 렌더링되고 편집 모드에서도 유지됨
 - 파일/폴더 영향: /frontend/src/components/widgets/GraphWidget.tsx, 차트 래퍼 컴포넌트
 - 예상 테스트: 그래프 위젯 삽입 및 데이터 변경 수동 검증
 

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ensureWidgetPlugin } from '../../plugins/widgetPlugin';
 
-// 커스텀 위젯 렌더러 등록 (Text, Table)
+// 커스텀 위젯 렌더러 등록 (Text, Table, Graph)
 import '../widgets/TextWidget';
 import '../widgets/TableWidget';
+import '../widgets/GraphWidget';
 
 type EditorStatus = 'loading' | 'ready' | 'error';
 
@@ -108,6 +109,40 @@ const TinyMceEditor = () => {
     return JSON.stringify(config).replace(/'/g, '&#39;');
   }, []);
 
+  // 샘플 그래프 위젯 설정
+  const sampleGraphWidgetConfig = useMemo(() => {
+    const config = {
+      chartType: 'line',
+      labels: ['2023 Q1', '2023 Q2', '2023 Q3', '2023 Q4'],
+      datasets: [
+        {
+          id: 'growth-actual',
+          label: '실제 성장률',
+          data: [12.5, 14.2, 16.1, 18.4],
+          backgroundColor: 'rgba(59, 130, 246, 0.25)',
+          borderColor: 'rgba(59, 130, 246, 1)',
+          fill: true,
+        },
+        {
+          id: 'growth-target',
+          label: '목표 성장률',
+          data: [11, 13, 15, 17],
+          backgroundColor: 'rgba(16, 185, 129, 0.2)',
+          borderColor: 'rgba(16, 185, 129, 1)',
+          fill: true,
+        },
+      ],
+      options: {
+        legend: true,
+        showGrid: true,
+        yAxisLabel: '%',
+        xAxisLabel: '분기',
+        precision: 1,
+      },
+    };
+    return JSON.stringify(config).replace(/'/g, '&#39;');
+  }, []);
+
   const initialContent = useMemo(
     () =>
       [
@@ -118,9 +153,10 @@ const TinyMceEditor = () => {
         '<li>목록, 링크, 표 등 TinyMCE 기본 기능이 정상 동작하는지 확인할 수 있습니다.</li>',
         '</ul>',
         `<div data-widget-type="table" data-widget-title="분기별 매출" data-widget-config='${sampleTableWidgetConfig}'></div>`,
+        `<div data-widget-type="graph" data-widget-title="분기별 성장률" data-widget-config='${sampleGraphWidgetConfig}'></div>`,
         `<div data-widget-type="text" data-widget-title="보고서 요약" data-widget-config='${sampleTextWidgetConfig}'></div>`,
       ].join(''),
-    [sampleTextWidgetConfig, sampleTableWidgetConfig],
+    [sampleTextWidgetConfig, sampleTableWidgetConfig, sampleGraphWidgetConfig],
   );
 
   // 텍스트 위젯 삽입(테스트용)
@@ -171,6 +207,36 @@ const TinyMceEditor = () => {
     editor.focus?.();
   }, []);
 
+  // 그래프 위젯 삽입(테스트용)
+  const handleInsertGraphWidget = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const config = {
+      chartType: 'bar',
+      labels: ['제품 A', '제품 B', '제품 C'],
+      datasets: [
+        {
+          id: 'sales',
+          label: '매출',
+          data: [120, 95, 135],
+          backgroundColor: 'rgba(99, 102, 241, 0.35)',
+          borderColor: 'rgba(99, 102, 241, 1)',
+        },
+      ],
+      options: {
+        legend: true,
+        showGrid: true,
+        yAxisLabel: '단위: 억원',
+      },
+    };
+    const payload = JSON.stringify(config).replace(/'/g, '&#39;');
+    editor.insertContent(
+      `<div data-widget-type="graph" data-widget-title="제품별 매출" data-widget-config='${payload}'></div>`,
+    );
+    editor.focus?.();
+  }, []);
+
   // 에디터 내용 CSS (테이블 위젯용 기본 스타일 포함)
   const contentStyle = useMemo(
     () =>
@@ -192,6 +258,11 @@ const TinyMceEditor = () => {
         '.table-widget__summary-label{color:#334155}',
         '.table-widget__summary-value{}',
         '.table-widget__footnote{color:#475569;font-size:12px;margin-top:6px}',
+        '.graph-widget{display:flex;flex-direction:column;gap:12px}',
+        '.graph-widget__title{font-weight:700;font-size:18px;margin:8px 0 4px;color:#0f172a}',
+        '.graph-widget__canvas{position:relative;height:320px}',
+        '.graph-widget__empty{display:flex;align-items:center;justify-content:center;height:240px;background:#e2e8f0;color:#475569;border-radius:8px;font-size:14px}',
+        '.graph-widget__note{margin-top:8px;font-size:12px;color:#0f172a}',
       ].join('\n'),
     [],
   );
@@ -353,6 +424,9 @@ const TinyMceEditor = () => {
         </button>
         <button type="button" onClick={handleInsertTableWidget} disabled={status !== 'ready'}>
           테이블 위젯 삽입
+        </button>
+        <button type="button" onClick={handleInsertGraphWidget} disabled={status !== 'ready'}>
+          그래프 위젯 삽입
         </button>
         <span style={{ color: '#64748b' }}>위젯을 더블클릭(또는 Enter/Space)하면 편집합니다.</span>
       </div>

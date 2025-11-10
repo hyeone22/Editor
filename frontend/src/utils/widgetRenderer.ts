@@ -21,12 +21,24 @@ export class WidgetRendererRegistry {
   private renderers = new Map<WidgetType, WidgetRenderer>();
 
   private fallbackRenderer: WidgetRenderer = ({ element, data }) => {
-    element.innerHTML = [
-      '<div class="widget-block__placeholder">',
-      `<span class="widget-block__label">${data.title ?? '커스텀 위젯'}</span>`,
-      `<span class="widget-block__type">${data.type}</span>`,
-      '</div>',
-    ].join('');
+    const placeholder = document.createElement('div');
+    placeholder.className = 'widget-block__placeholder';
+
+    const label = document.createElement('span');
+    label.className = 'widget-block__label';
+    label.textContent = data.title ?? '커스텀 위젯';
+
+    const type = document.createElement('span');
+    type.className = 'widget-block__type';
+    type.textContent = data.type;
+
+    placeholder.append(label, type);
+
+    while (element.firstChild) {
+      element.removeChild(element.firstChild);
+    }
+
+    element.appendChild(placeholder);
   };
 
   register(type: WidgetType, renderer: WidgetRenderer) {

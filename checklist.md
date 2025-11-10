@@ -18,7 +18,7 @@
 - 파일/폴더 영향: /frontend/src/plugins/widgetPlugin.ts, /frontend/src/components/widgets/TextWidget.tsx
 - 예상 테스트: 텍스트 위젯 삽입 및 편집 흐름 수동 검증
 
-- [ ] (6) 테이블 위젯 구현 — JSON 데이터가 올바른 HTML 테이블로 렌더링되고 스타일 옵션이 적용됨
+- [x] (6) 테이블 위젯 구현 — JSON 데이터가 올바른 HTML 테이블로 렌더링되고 스타일 옵션이 적용됨
 - 파일/폴더 영향: /frontend/src/components/widgets/TableWidget.tsx, 위젯 플러그인
 - 예상 테스트: 테이블 위젯 삽입과 스타일 적용 수동 검증
 

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ensureWidgetPlugin } from '../../plugins/widgetPlugin';
+import '../widgets/TextWidget';
 
 type EditorStatus = 'loading' | 'ready' | 'error';
 
@@ -13,6 +14,8 @@ interface TinyMcePluginManager {
 interface TinyMceInstance {
   remove: () => void;
   on: (eventName: string, callback: () => void) => void;
+  insertContent: (content: string) => void;
+  focus?: () => void;
 }
 
 interface TinyMceGlobal {
@@ -36,6 +39,21 @@ const TinyMceEditor = () => {
   const apiKey =
     (import.meta.env.VITE_TINYMCE_API_KEY ?? DEFAULT_API_KEY).trim() || DEFAULT_API_KEY;
 
+  const sampleTextWidgetConfig = useMemo(() => {
+    const config = {
+      content:
+        '<p><strong>텍스트 위젯</strong>은 보고서에서 반복적으로 사용하는 설명이나 코멘트를 저장하는 데 사용할 수 있습니다.</p>',
+      richText: true,
+      style: {
+        alignment: 'left',
+        fontSize: 15,
+        lineHeight: 1.6,
+      },
+    };
+
+    return JSON.stringify(config).replace(/'/g, '&#39;');
+  }, []);
+
   const initialContent = useMemo(
     () =>
       [
@@ -45,9 +63,32 @@ const TinyMceEditor = () => {
         '<li><strong>굵게</strong>, <em>기울임꼴</em>, <u>밑줄</u>과 같은 서식을 적용해 보세요.</li>',
         '<li>목록, 링크, 표 등 TinyMCE 기본 기능이 정상 동작하는지 확인할 수 있습니다.</li>',
         '</ul>',
+        `<div data-widget-type="text" data-widget-title="보고서 요약" data-widget-config='${sampleTextWidgetConfig}'></div>`,
       ].join(''),
-    [],
+    [sampleTextWidgetConfig],
   );
+
+  const handleInsertTextWidget = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
+    }
+
+    const config = {
+      content: '<p>새 텍스트 위젯 내용을 입력하세요.</p>',
+      richText: true,
+      style: {
+        alignment: 'left',
+        lineHeight: 1.6,
+      },
+    };
+
+    const serialised = JSON.stringify(config).replace(/'/g, '&#39;');
+    const widgetHtml =
+      `<div data-widget-type="text" data-widget-title="새 텍스트" data-widget-config='${serialised}'></div>`;
+    editor.insertContent(widgetHtml);
+    editor.focus?.();
+  }, []);
 
   const contentStyle = useMemo(
     () =>
@@ -180,6 +221,20 @@ const TinyMceEditor = () => {
       )}
 
       <textarea ref={textareaRef} defaultValue={initialContent} aria-label="보고서 에디터" />
+
+      <div className="editor-widget-actions">
+        <button
+          type="button"
+          onClick={handleInsertTextWidget}
+          disabled={status !== 'ready'}
+          className="editor-widget-actions__button"
+        >
+          텍스트 위젯 삽입
+        </button>
+        <span className="editor-widget-actions__hint">
+          TinyMCE 상단 도구와 함께 커스텀 텍스트 위젯을 추가하고, 위젯을 더블 클릭하여 내용을 편집할 수 있습니다.
+        </span>
+      </div>
 
       {apiKey === DEFAULT_API_KEY && (
         <p className="editor-helper">

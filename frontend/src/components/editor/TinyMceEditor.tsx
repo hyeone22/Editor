@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ensureWidgetPlugin } from '../../plugins/widgetPlugin';
+import attachWidgetDragDrop from '../../plugins/widgetDragDrop';
 
 // 커스텀 위젯 렌더러 등록 (Text, Table, Graph, Page Break)
 import '../widgets/TextWidget';
@@ -26,6 +27,7 @@ interface TinyMceEvent {
 interface TinyMceInstance {
   remove: () => void;
   on: <T = TinyMceEvent>(eventName: string, callback: (event: T) => void) => void;
+  off?: (eventName: string, callback: (event: TinyMceEvent) => void) => void;
   insertContent: (content: string) => void;
   focus?: () => void;
   selection?: {
@@ -56,6 +58,7 @@ declare global {
 const TinyMceEditor = () => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const editorRef = useRef<TinyMceInstance | null>(null);
+  const dragDropCleanupRef = useRef<(() => void) | null>(null);
   const [status, setStatus] = useState<EditorStatus>('loading');
 
   const apiKey =
@@ -285,6 +288,7 @@ const TinyMceEditor = () => {
         '.page-break-widget--spacing-small{margin:8px 0}',
         '.page-break-widget--spacing-medium{margin:16px 0}',
         '.page-break-widget--spacing-large{margin:32px 0}',
+        '.widget-block--dragging{opacity:0.6;cursor:grabbing;border-style:solid}',
         // ✅ 여기 추가
         '@media print {',
         '  [data-page-break="true"] { break-after: page; page-break-after: always; }',
@@ -306,6 +310,8 @@ const TinyMceEditor = () => {
     setStatusSafe('loading');
 
     const cleanup = () => {
+      dragDropCleanupRef.current?.();
+      dragDropCleanupRef.current = null;
       if (editorRef.current) {
         editorRef.current.remove();
         editorRef.current = null;
@@ -334,9 +340,11 @@ const TinyMceEditor = () => {
           resize: true,
           content_style: contentStyle,
           extended_valid_elements:
-            'div[data-widget-type|data-widget-id|data-widget-config|data-widget-title|data-widget-version|data-page-break|data-keep-with-next|data-spacing|data-display-label]',
+            'div[data-widget-type|data-widget-id|data-widget-config|data-widget-title|data-widget-version|data-widget-order|data-page-break|data-keep-with-next|data-spacing|data-display-label]',
           setup: (editor: TinyMceInstance) => {
             editorRef.current = editor;
+            dragDropCleanupRef.current?.();
+            dragDropCleanupRef.current = attachWidgetDragDrop(editor);
 
             editor.on('init', () => {
               setStatusSafe('ready');
@@ -370,6 +378,8 @@ const TinyMceEditor = () => {
                 doc.addEventListener('widget:changed', handleWidgetChanged, true);
 
                 editor.on('remove', () => {
+                  dragDropCleanupRef.current?.();
+                  dragDropCleanupRef.current = null;
                   doc.removeEventListener('dblclick', handleDbl, true);
                   doc.removeEventListener('click', handleClick, true);
                   doc.removeEventListener('widget:changed', handleWidgetChanged, true);

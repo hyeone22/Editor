@@ -121,6 +121,7 @@ const parseWidgetDescriptor = (
   }
 
   const dataset = { ...element.dataset } as Record<string, string>;
+  dataset.widgetOrder = String(order);
 
   return {
     id: ensureWidgetId(element, order),
@@ -137,7 +138,7 @@ const markAsWidget = (element: HTMLElement, className: string) => {
   element.setAttribute('contenteditable', 'false');
   element.setAttribute('data-mce-noneditable', 'true');
   element.setAttribute('data-mce-resizable', 'false');
-  element.setAttribute('draggable', 'false');
+  element.setAttribute('draggable', 'true');
   element.classList.add(className);
 };
 
@@ -160,6 +161,8 @@ const refreshWidgetBlocks = (
       return;
     }
 
+    element.setAttribute('data-widget-order', String(index));
+    element.dataset.widgetOrder = String(index);
     registry.render({
       element,
       data: descriptor,
@@ -185,6 +188,12 @@ const normaliseWidgetAttributes = (node: TinyMceNode) => {
       setAttr(node, 'data-widget-config', serialised);
     }
   }
+
+  const orderValue = safeAttr(node, 'data-widget-order');
+  if (typeof orderValue === 'string') {
+    const trimmed = orderValue.trim();
+    setAttr(node, 'data-widget-order', trimmed.length > 0 ? trimmed : null);
+  }
 };
 
 export const ensureWidgetPlugin = (
@@ -206,7 +215,7 @@ export const ensureWidgetPlugin = (
     function (editor: TinyMceEditor /*: any*/, _url: any /*: string*/) {
       editor.on('PreInit', () => {
         editor.schema.addValidElements(
-          'div[data-widget-type|data-widget-id|data-widget-config|data-widget-title|data-widget-version]',
+          'div[data-widget-type|data-widget-id|data-widget-config|data-widget-title|data-widget-version|data-widget-order]',
         );
 
         editor.parser.addNodeFilter('div', (nodes: TinyMceNode[]) => {

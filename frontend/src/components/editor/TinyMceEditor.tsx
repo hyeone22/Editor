@@ -8,6 +8,7 @@ import '../widgets/TextWidget';
 import '../widgets/TableWidget';
 import '../widgets/GraphWidget';
 import '../widgets/PageBreakWidget';
+// import attachWidgetDragFree from '../../plugins/widgetDragFree';
 
 type EditorStatus = 'loading' | 'ready' | 'error';
 
@@ -195,28 +196,79 @@ const TinyMceEditor: FC = () => {
     editor.focus?.();
   }, []);
 
-  // iframe 내부 스타일 (디자인 업그레이드)
+  // iframe 내부 스타일 (모드 없이: 100%로 시작 → 리사이즈하면 옆으로 래핑)
+  // 이미지 위젯도 컨테이너 리사이즈로 자연스럽게 줄어들도록 포함
   const contentStyle = useMemo(
     () =>
       [
         '/* ========= THEME TOKENS ========= */',
         ':root{ --card-bg:#f8fafc; --card-border:#e2e8f0; --card-grad:linear-gradient(180deg,rgba(148,163,184,.25),rgba(148,163,184,0)); --ink:#0f172a; --ink-sub:#475569; --accent:#0ea5e9; --accent-ink:#0369a1; --ring:0 0 0 3px rgba(14,165,233,.35); }',
-        '@media (prefers-color-scheme: dark){ :root{ --card-bg:#0b1220; --card-border:#1f2937; --card-grad:linear-gradient(180deg,rgba(148,163,184,.18),rgba(148,163,184,0)); --ink:#e5e7eb; --ink-sub:#9ca3af; --accent:#22d3ee; --accent-ink:#67e8f9; --ring:0 0 0 3px rgba(34,211,238,.4);} }',
+        '@media (prefers-color-scheme: dark){ :root{ --card-bg:#0b1220; --card-border:#1f2937; --card-grad:linear-gradient(180deg,rgba(148,163,184,.18),rgba(148,163,184,0)); --ink:#e5e7eb; --ink-sub:#9ca3af; --accent:#22d3ee; --accent-ink:#67e8f9; --ring:0 0 0 3px rgba(34,211,238,.4); } }',
 
-        "body{ font-family:'Noto Sans KR',system-ui,-apple-system,'Segoe UI',sans-serif; font-size:16px; color:var(--ink); }",
+        "body{ font-family:'Noto Sans KR',system-ui,-apple-system,'Segoe UI',sans-serif; font-size:16px; color:var(--ink); position:relative; }",
 
         '/* ========= WIDGET HOST ========= */',
-        '[data-widget-type]{ position:relative; display:block; }',
-        '.widget-block{ background:var(--card-bg); border:1px solid var(--card-border); border-radius:14px; padding:16px; box-shadow:0 1px 1px rgba(2,6,23,.04), 0 2px 4px rgba(2,6,23,.06); }',
+        '/* 모든 위젯은 흐름 아이템: 100%로 시작 → 폭을 줄이면 옆으로 래핑 */',
+        '[data-widget-type]{',
+        '  position: relative;',
+        '  display: inline-block;', // 핵심: block → inline-block
+        '  vertical-align: top;',
+        '  width: 100%;', // 생성 시 전체 폭
+        '  max-width: 100%;',
+        '  min-width: 240px;', // 리사이즈 하한(필요시 조정)
+        '  box-sizing: border-box;',
+        '  margin: 10px;', // 위젯 간격
+        '}',
+
+        /* === FREE POSITION OVERRIDES === */
+        /* 위젯이 data-position="free" 이면 흐름(100%) 규칙을 꺾고 절대배치로 전환 */
+        '[data-widget-type][data-position="free"]{',
+        'position: absolute !important;',
+        'width: auto !important;' /* ← 100% 강제 해제 */,
+        'max-width: none !important;',
+        'min-width: 120px;' /* 필요 시 조절 */,
+        'margin: 0;' /* 좌표를 left/top로만 제어 */,
+        'box-sizing: border-box;',
+        'z-index: 1;' /* 드래그 중 겹침 시 가시성 확보 */,
+        '}',
+        /* 카드 박스도 100% 규칙을 해제해야 px width/height가 그대로 적용됨 */
+        '[data-widget-type][data-position="free"] .widget-block{',
+        'width: auto !important;',
+        '}',
+
+        '/* 카드 박스는 호스트 폭 100%로 꽉 차게 */',
+        '.widget-block{',
+        '  background:var(--card-bg); border:1px solid var(--card-border); border-radius:14px; padding:16px;',
+        '  box-shadow:0 1px 1px rgba(2,6,23,.04), 0 2px 4px rgba(2,6,23,.06);',
+        '  width:100%; box-sizing:border-box;',
+        '  overflow:hidden;', // 이미지/그래프가 튀어나오지 않도록
+        '}',
         ".widget-block::before{ content:''; position:absolute; inset:0; border-radius:inherit; background:var(--card-grad); pointer-events:none; }",
         '.widget-block:hover{ box-shadow:0 4px 10px rgba(2,6,23,.08); transform:translateY(-1px); transition:box-shadow .15s ease, transform .15s ease; }',
         '.widget-block:focus-within{ box-shadow:var(--ring), 0 6px 14px rgba(2,6,23,.10); }',
         '.widget-block--dragging{ opacity:.85; cursor:grabbing; border-style:solid }',
         '.widget-block--resizing{ box-shadow:var(--ring); cursor:se-resize }',
 
-        '/* 모서리 리사이즈 힌트(핸들 DOM 없이) */',
+        '/* 모서리 리사이즈 힌트(시각 표시) */',
         ".widget-block::after{ content:''; position:absolute; right:.6rem; bottom:.6rem; width:12px; height:12px; border-right:2px solid var(--accent); border-bottom:2px solid var(--accent); opacity:.85; pointer-events:none }",
         '.widget-block:hover::after{ opacity:1 }',
+
+        '/* 실제 리사이즈 핸들(플러그인이 추가하는 span) */',
+        '.widget-resize-handle{',
+        '  position:absolute; right:.6rem; bottom:.6rem;',
+        '  width:16px; height:16px; border:2px solid var(--accent); border-radius:4px; background:#fff;',
+        '  display:flex; align-items:center; justify-content:center;',
+        '  cursor:se-resize; z-index:1000; pointer-events:auto;',
+        '}',
+
+        '/* ========= IMAGE WIDGET ========= */',
+        '/* 이미지 위젯은 컨테이너(위젯) 크기에 맞춰 유동적으로 축소/확대 */',
+        '[data-widget-type="image"] img{',
+        '  display:block;',
+        '  width:100%;', // 컨테이너 너비에 맞춤(리사이즈 시 함께 변화)
+        '  height:auto;', // 종횡비 유지
+        '  max-width:100%;',
+        '}',
 
         '/* ========= TITLES & META ========= */',
         '.widget-title{ font-weight:700; font-size:18px; margin:4px 0 12px; letter-spacing:-.01em }',
@@ -313,7 +365,9 @@ const TinyMceEditor: FC = () => {
 
             editor.on('init', () => {
               setStatusSafe('ready');
-
+              // console.log('[TinyMCE] init fired, attaching resize...');
+              attachWidgetResize(editor);
+              // attachWidgetDragFree(editor);
               // 더블클릭/Enter/Space → edit
               const body = editor.getBody?.();
               const doc = body?.ownerDocument;

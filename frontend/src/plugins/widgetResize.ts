@@ -1,3 +1,4 @@
+// plugins/widgetResize.ts
 import { parseWidgetConfig, serialiseWidgetConfig } from '../utils/widgetRenderer';
 
 interface TinyMceEditor {
@@ -10,218 +11,316 @@ interface TinyMceEditor {
 }
 
 export interface WidgetResizeOptions {
-  widgetSelector?: string;
-  resizingClassName?: string;
+  widgetSelector?: string; // 기본: [data-widget-type]
+  handleClassName?: string; // 기본: widget-resize-handle
+  resizingClassName?: string; // 기본: widget-block--resizing
   minWidth?: number;
   minHeight?: number;
   maxWidth?: number;
   maxHeight?: number;
-  /** 우하단 코너 히트 영역 크기(px) */
-  cornerHitSize?: number;
+  cornerHitSize?: number; // 우하단 모서리 히트존(px)
 }
 
 const DEFAULT_WIDGET_SELECTOR = '[data-widget-type]';
+const DEFAULT_HANDLE_CLASSNAME = 'widget-resize-handle';
 const DEFAULT_RESIZING_CLASSNAME = 'widget-block--resizing';
 const DEFAULT_MIN_WIDTH = 240;
 const DEFAULT_MIN_HEIGHT = 160;
-const DEFAULT_MAX_WIDTH = 1200;
-const DEFAULT_MAX_HEIGHT = 900;
-const DEFAULT_CORNER_HIT = 18;
+const DEFAULT_MAX_WIDTH = 4000;
+const DEFAULT_MAX_HEIGHT = 4000;
+const DEFAULT_HIT = 20;
 
 type Cleanup = () => void;
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
+const toPx = (n: number) => `${Math.round(n)}px`;
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
 
-const clamp = (v: number, min: number, max: number) =>
-  Math.min(Math.max(v, min), Number.isFinite(max) ? max : Number.POSITIVE_INFINITY);
-
-const toPx = (v: number) => `${Math.round(v)}px`;
-
-const extractDimension = (value: unknown): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const m = value.trim().match(/^(\d+(?:\.\d+)?)px$/i);
+const parsePx = (v: unknown): number | null => {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
+    const m = v.trim().match(/^(\d+(?:\.\d+)?)px$/i);
     if (m) return Number.parseFloat(m[1]);
   }
   return null;
 };
 
-const applyInlineSize = (el: HTMLElement, w: number, h: number) => {
-  el.style.width = toPx(w);
-  el.style.height = toPx(h);
+const cfgGet = (el: HTMLElement) => parseWidgetConfig(el.getAttribute('data-widget-config')) ?? {};
+const cfgSet = (el: HTMLElement, next: Record<string, unknown>) => {
+  const s = serialiseWidgetConfig(next);
+  if (s) el.setAttribute('data-widget-config', s);
 };
 
-const syncSizeFromConfig = (widget: HTMLElement) => {
-  const config = parseWidgetConfig(widget.getAttribute('data-widget-config'));
-  if (!config) {
-    widget.style.width = '';
-    widget.style.height = '';
-    return;
-  }
-  const styleConfig = (config as { style?: unknown }).style;
-  if (!isPlainObject(styleConfig)) {
-    widget.style.width = '';
-    widget.style.height = '';
-    return;
-  }
-  const w = extractDimension(styleConfig.width);
-  const h = extractDimension(styleConfig.height);
-  widget.style.width = typeof w === 'number' ? toPx(w) : '';
-  widget.style.height = typeof h === 'number' ? toPx(h) : '';
+const getInlineSize = (el: HTMLElement) => {
+  const c = cfgGet(el);
+  const st = (c as Record<string, unknown>).style as Record<string, unknown> | undefined;
+  const w = parsePx(st?.width);
+  const h = parsePx(st?.height);
+  const rect = el.getBoundingClientRect();
+  return {
+    width: typeof w === 'number' ? w : Math.round(rect.width),
+    height: typeof h === 'number' ? h : Math.round(rect.height),
+  };
 };
 
-const commitSizeToConfig = (
-  widget: HTMLElement,
-  editor: TinyMceEditor,
-  width: number,
-  height: number,
-) => {
-  const config = parseWidgetConfig(widget.getAttribute('data-widget-config')) ?? {};
-  const nextConfig: Record<string, unknown> = { ...config };
-  const styleConfig = isPlainObject((nextConfig as { style?: unknown }).style)
-    ? { ...((nextConfig as { style?: Record<string, unknown> }).style ?? {}) }
+const applyInlineSize = (el: HTMLElement, width: number, height: number) => {
+  el.style.width = toPx(width);
+  el.style.height = toPx(height);
+};
+
+const commitSize = (el: HTMLElement, editor: TinyMceEditor, width: number, height: number) => {
+  const c = cfgGet(el);
+  const st = isPlainObject((c as Record<string, unknown>).style)
+    ? { ...((c as Record<string, unknown>).style as Record<string, unknown>) }
     : {};
+  (st as Record<string, unknown>).width = Math.round(width);
+  (st as Record<string, unknown>).height = Math.round(height);
+  (c as Record<string, unknown>).style = st;
+  cfgSet(el, c);
 
-  styleConfig.width = Math.round(width);
-  styleConfig.height = Math.round(height);
-  nextConfig.style = styleConfig;
-
-  const serialised = serialiseWidgetConfig(nextConfig);
-  if (serialised) widget.setAttribute('data-widget-config', serialised);
-
-  applyInlineSize(widget, width, height);
-  widget.dispatchEvent(new CustomEvent('widget:changed', { bubbles: true }));
+  el.dispatchEvent(new CustomEvent('widget:changed', { bubbles: true }));
   editor.fire?.('change');
   editor.setDirty?.(true);
   editor.nodeChanged?.();
 };
 
-const isInResizeCorner = (
-  widget: HTMLElement,
-  clientX: number,
-  clientY: number,
-  cornerSize: number,
-): boolean => {
-  const r = widget.getBoundingClientRect();
-  return clientX >= r.right - cornerSize && clientY >= r.bottom - cornerSize;
-};
-
-export const attachWidgetResize = (
+export default function attachWidgetResize(
   editor: TinyMceEditor,
   options: WidgetResizeOptions = {},
-): Cleanup => {
+): Cleanup {
   const {
     widgetSelector = DEFAULT_WIDGET_SELECTOR,
+    handleClassName = DEFAULT_HANDLE_CLASSNAME,
     resizingClassName = DEFAULT_RESIZING_CLASSNAME,
     minWidth = DEFAULT_MIN_WIDTH,
     minHeight = DEFAULT_MIN_HEIGHT,
     maxWidth = DEFAULT_MAX_WIDTH,
     maxHeight = DEFAULT_MAX_HEIGHT,
-    cornerHitSize = DEFAULT_CORNER_HIT,
+    cornerHitSize = DEFAULT_HIT,
   } = options;
 
-  // 리스너 관리 (정리 위해 Map 사용)
-  const startListeners = new Map<HTMLElement, (e: PointerEvent) => void>();
+  const body = editor.getBody?.();
+  if (!body) {
+    // init 이전에 호출된 경우
+    // eslint-disable-next-line no-console
+    console.warn('[Resize] no body found');
+    return () => {};
+  }
 
-  const ensureForWidget = (widget: HTMLElement) => {
-    widget.classList.add('widget-block');
+  type Rec = {
+    handle: HTMLElement;
+    onHandleDown: (e: PointerEvent | MouseEvent) => void;
+    onCornerDown: (e: PointerEvent | MouseEvent) => void;
+  };
+  const records = new Map<HTMLElement, Rec>();
 
-    if (!startListeners.has(widget)) {
-      const onPointerDown = (ev: PointerEvent): void => {
-        if (!isInResizeCorner(widget, ev.clientX, ev.clientY, cornerHitSize)) return;
+  // 디버그: 현재 상태 요약
+  const debugSummary = () => {
+    const widgetCount = body.querySelectorAll(widgetSelector).length;
+    const handleCount = body.querySelectorAll(`.${handleClassName}`).length;
+    // eslint-disable-next-line no-console
+    console.log(`[Resize] Found ${widgetCount} widgets, ${handleCount} handles`);
+  };
 
-        ev.preventDefault();
-        ev.stopPropagation();
+  const startResize = (
+    widget: HTMLElement,
+    ev: PointerEvent | MouseEvent,
+    from: 'handle' | 'corner',
+  ) => {
+    const r = widget.getBoundingClientRect();
+    const clientX = 'clientX' in ev ? ev.clientX : r.right;
+    const clientY = 'clientY' in ev ? ev.clientY : r.bottom;
 
-        const doc: Document = widget.ownerDocument || document;
-        widget.dispatchEvent(new CustomEvent('widget:resizing-start', { bubbles: true }));
-
-        const rect: DOMRect = widget.getBoundingClientRect();
-        const startX = ev.clientX;
-        const startY = ev.clientY;
-        const origW = rect.width;
-        const origH = rect.height;
-
-        let w = origW;
-        let h = origH;
-
-        const prevDraggable = widget.getAttribute('draggable');
-        widget.setAttribute('draggable', 'false');
-        widget.classList.add(resizingClassName);
-
-        const onMove = (mv: PointerEvent): void => {
-          mv.preventDefault();
-          const dx = mv.clientX - startX;
-          const dy = mv.clientY - startY;
-          w = clamp(origW + dx, minWidth, maxWidth);
-          h = clamp(origH + dy, minHeight, maxHeight);
-          applyInlineSize(widget, w, h);
-        };
-
-        const onUp = (up: PointerEvent): void => {
-          onMove(up);
-
-          doc.removeEventListener('pointermove', onMove);
-          doc.removeEventListener('pointerup', onUp);
-
-          widget.classList.remove(resizingClassName);
-          if (prevDraggable === null) widget.removeAttribute('draggable');
-          else widget.setAttribute('draggable', prevDraggable);
-
-          const changed = Math.abs(w - origW) > 0.5 || Math.abs(h - origH) > 0.5;
-          if (changed) commitSizeToConfig(widget, editor, w, h);
-
-          widget.dispatchEvent(new CustomEvent('widget:resizing-end', { bubbles: true }));
-        };
-
-        doc.addEventListener('pointermove', onMove);
-        doc.addEventListener('pointerup', onUp);
-      };
-
-      // 캡처 단계에서 먼저 받아 TinyMCE 기본 동작보다 우선
-      widget.addEventListener('pointerdown', onPointerDown, true);
-      startListeners.set(widget, onPointerDown);
+    // 핸들이 아닌 경우: 우하단 모서리 히트 여부 체크
+    if (from === 'corner') {
+      const hit = clientX >= r.right - cornerHitSize && clientY >= r.bottom - cornerHitSize;
+      if (!hit) return;
     }
 
-    // 초기 사이즈 반영
-    syncSizeFromConfig(widget);
+    // eslint-disable-next-line no-console
+    console.log(`[Resize] pointerdown (${from}) on`, widget);
+
+    if ('preventDefault' in ev) ev.preventDefault();
+    if ('stopPropagation' in ev) ev.stopPropagation();
+
+    const start = { x: clientX, y: clientY };
+    const startSize = getInlineSize(widget);
+    widget.classList.add(resizingClassName);
+
+    const doc = widget.ownerDocument || document;
+
+    const onMove = (mv: PointerEvent | MouseEvent) => {
+      if ('preventDefault' in mv) mv.preventDefault();
+      const mx = 'clientX' in mv ? mv.clientX : start.x;
+      const my = 'clientY' in mv ? mv.clientY : start.y;
+      const dx = mx - start.x;
+      const dy = my - start.y;
+
+      const w = Math.min(Math.max(startSize.width + dx, minWidth), maxWidth);
+      const h = Math.min(Math.max(startSize.height + dy, minHeight), maxHeight);
+
+      applyInlineSize(widget, w, h);
+      // eslint-disable-next-line no-console
+      console.log('[Resize] moving:', { w, h });
+    };
+
+    const onUp = (up: PointerEvent | MouseEvent) => {
+      onMove(up);
+      doc.removeEventListener('pointermove', onMove as EventListener, true);
+      doc.removeEventListener('pointerup', onUp as EventListener, true);
+      doc.removeEventListener('mousemove', onMove as EventListener, true);
+      doc.removeEventListener('mouseup', onUp as EventListener, true);
+
+      widget.classList.remove(resizingClassName);
+      const rect = widget.getBoundingClientRect();
+      commitSize(widget, editor, rect.width, rect.height);
+      // eslint-disable-next-line no-console
+      console.log('[Resize] pointerup → final size:', { w: rect.width, h: rect.height });
+    };
+
+    if (window.PointerEvent) {
+      doc.addEventListener(
+        'pointermove',
+        onMove as EventListener,
+        { capture: true, passive: false } as AddEventListenerOptions,
+      );
+      doc.addEventListener(
+        'pointerup',
+        onUp as EventListener,
+        { capture: true, passive: false } as AddEventListenerOptions,
+      );
+    } else {
+      doc.addEventListener('mousemove', onMove as EventListener, true);
+      doc.addEventListener('mouseup', onUp as EventListener, true);
+    }
   };
 
-  const ensureAll = (): void => {
-    const body = editor.getBody?.();
-    if (!body) return;
+  const ensureHandle = (widget: HTMLElement) => {
+    if (records.has(widget)) return;
 
+    // 핸들 DOM
+    let handle = widget.querySelector<HTMLElement>(`.${handleClassName}`);
+    if (!handle) {
+      handle = widget.ownerDocument!.createElement('span');
+      handle.className = handleClassName;
+      widget.appendChild(handle);
+      // eslint-disable-next-line no-console
+      console.log('[Resize] handle created for', widget);
+    } else {
+      // eslint-disable-next-line no-console
+      console.log('[Resize] handle found for', widget);
+    }
+
+    // 핸들 스타일(클릭 레이어 강화)
+    Object.assign(handle.style, {
+      position: 'absolute',
+      right: '8px',
+      bottom: '8px',
+      width: '16px',
+      height: '16px',
+      border: '2px solid #0ea5e9',
+      borderRadius: '4px',
+      background: '#fff',
+      cursor: 'se-resize',
+      zIndex: '9999',
+      pointerEvents: 'auto',
+    } as CSSStyleDeclaration);
+
+    // 터치 스크롤 차단
+    (handle.style as unknown as { touchAction?: string }).touchAction = 'none';
+
+    // 디버그 클릭
+    handle.addEventListener('click', () => {
+      // eslint-disable-next-line no-console
+      console.log('[Resize] handle clicked', widget);
+    });
+
+    const onHandleDown = (ev: PointerEvent | MouseEvent) => startResize(widget, ev, 'handle');
+    const onCornerDown = (ev: PointerEvent | MouseEvent) => startResize(widget, ev, 'corner');
+
+    // 캡처 단계에서 잡아 내부 캔버스/차트가 가로채는 문제 방지
+    handle.addEventListener('pointerdown', onHandleDown as EventListener, { capture: true });
+    handle.addEventListener('mousedown', onHandleDown as EventListener, { capture: true });
+    widget.addEventListener('pointerdown', onCornerDown as EventListener, { capture: true });
+    widget.addEventListener('mousedown', onCornerDown as EventListener, { capture: true });
+
+    records.set(widget, { handle, onHandleDown, onCornerDown });
+  };
+
+  const ensureAll = () => {
     const widgets = Array.from(body.querySelectorAll<HTMLElement>(widgetSelector));
-    const current = new Set<HTMLElement>(widgets);
+    const current = new Set(widgets);
+    widgets.forEach(ensureHandle);
 
-    widgets.forEach((w: HTMLElement) => ensureForWidget(w));
-
-    // 제거된 위젯 리스너 정리
-    startListeners.forEach((listener: (e: PointerEvent) => void, el: HTMLElement) => {
+    // 제거된 위젯 정리
+    records.forEach((rec, el) => {
       if (!current.has(el)) {
-        el.removeEventListener('pointerdown', listener, true);
-        startListeners.delete(el);
+        rec.handle.removeEventListener(
+          'pointerdown',
+          rec.onHandleDown as EventListener,
+          { capture: true } as unknown as boolean,
+        );
+        rec.handle.removeEventListener(
+          'mousedown',
+          rec.onHandleDown as EventListener,
+          { capture: true } as unknown as boolean,
+        );
+        el.removeEventListener(
+          'pointerdown',
+          rec.onCornerDown as EventListener,
+          { capture: true } as unknown as boolean,
+        );
+        el.removeEventListener(
+          'mousedown',
+          rec.onCornerDown as EventListener,
+          { capture: true } as unknown as boolean,
+        );
+        rec.handle.remove();
+        records.delete(el);
       }
     });
+
+    debugSummary();
   };
 
+  // 초기 및 TinyMCE 훅
+  ensureAll();
   editor.on?.('init', ensureAll);
-  editor.on?.('LoadContent', ensureAll);
   editor.on?.('SetContent', ensureAll);
   editor.on?.('NodeChange', ensureAll);
-  editor.on?.('Change', ensureAll);
-  editor.on?.('input', ensureAll);
 
-  const cleanup: Cleanup = () => {
-    startListeners.forEach((listener: (e: PointerEvent) => void, el: HTMLElement) => {
-      el.removeEventListener('pointerdown', listener, true);
+  const cleanup = () => {
+    records.forEach((rec, el) => {
+      rec.handle.removeEventListener(
+        'pointerdown',
+        rec.onHandleDown as EventListener,
+        { capture: true } as unknown as boolean,
+      );
+      rec.handle.removeEventListener(
+        'mousedown',
+        rec.onHandleDown as EventListener,
+        { capture: true } as unknown as boolean,
+      );
+      el.removeEventListener(
+        'pointerdown',
+        rec.onCornerDown as EventListener,
+        { capture: true } as unknown as boolean,
+      );
+      el.removeEventListener(
+        'mousedown',
+        rec.onCornerDown as EventListener,
+        { capture: true } as unknown as boolean,
+      );
+      rec.handle.remove();
     });
-    startListeners.clear();
+    records.clear();
+    editor.off?.('init', ensureAll);
+    editor.off?.('SetContent', ensureAll);
+    editor.off?.('NodeChange', ensureAll);
+    // eslint-disable-next-line no-console
+    console.log('[Resize] cleanup');
   };
 
   editor.on?.('remove', cleanup);
   return cleanup;
-};
-
-export default attachWidgetResize;
+}

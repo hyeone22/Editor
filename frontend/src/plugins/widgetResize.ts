@@ -11,58 +11,45 @@ interface TinyMceEditor {
 
 export interface WidgetResizeOptions {
   widgetSelector?: string;
-  handleClassName?: string;
   resizingClassName?: string;
   minWidth?: number;
   minHeight?: number;
   maxWidth?: number;
   maxHeight?: number;
+  /** 우하단 코너 히트 영역 크기(px) */
+  cornerHitSize?: number;
 }
 
 const DEFAULT_WIDGET_SELECTOR = '[data-widget-type]';
-const DEFAULT_HANDLE_CLASSNAME = 'widget-resize-handle';
 const DEFAULT_RESIZING_CLASSNAME = 'widget-block--resizing';
 const DEFAULT_MIN_WIDTH = 240;
 const DEFAULT_MIN_HEIGHT = 160;
 const DEFAULT_MAX_WIDTH = 1200;
 const DEFAULT_MAX_HEIGHT = 900;
+const DEFAULT_CORNER_HIT = 18;
 
 type Cleanup = () => void;
-
-interface ResizeRecord {
-  widget: HTMLElement;
-  handle: HTMLElement;
-  onPointerDown: (event: PointerEvent) => void;
-}
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const clampDimension = (value: number, min: number, max: number) => {
-  const safeMax = Number.isFinite(max) ? max : Number.POSITIVE_INFINITY;
-  return Math.min(Math.max(value, min), safeMax);
-};
+const clamp = (v: number, min: number, max: number) =>
+  Math.min(Math.max(v, min), Number.isFinite(max) ? max : Number.POSITIVE_INFINITY);
 
-const toPixelValue = (value: number) => `${Math.round(value)}px`;
+const toPx = (v: number) => `${Math.round(v)}px`;
 
 const extractDimension = (value: unknown): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
-    const match = value.trim().match(/^(\d+(?:\.\d+)?)px$/i);
-    if (match) {
-      return Number.parseFloat(match[1]);
-    }
+    const m = value.trim().match(/^(\d+(?:\.\d+)?)px$/i);
+    if (m) return Number.parseFloat(m[1]);
   }
-
   return null;
 };
 
-const applyInlineSize = (widget: HTMLElement, width: number, height: number) => {
-  widget.style.width = toPixelValue(width);
-  widget.style.height = toPixelValue(height);
+const applyInlineSize = (el: HTMLElement, w: number, h: number) => {
+  el.style.width = toPx(w);
+  el.style.height = toPx(h);
 };
 
 const syncSizeFromConfig = (widget: HTMLElement) => {
@@ -72,19 +59,16 @@ const syncSizeFromConfig = (widget: HTMLElement) => {
     widget.style.height = '';
     return;
   }
-
   const styleConfig = (config as { style?: unknown }).style;
   if (!isPlainObject(styleConfig)) {
     widget.style.width = '';
     widget.style.height = '';
     return;
   }
-
-  const width = extractDimension(styleConfig.width);
-  const height = extractDimension(styleConfig.height);
-
-  widget.style.width = typeof width === 'number' ? toPixelValue(width) : '';
-  widget.style.height = typeof height === 'number' ? toPixelValue(height) : '';
+  const w = extractDimension(styleConfig.width);
+  const h = extractDimension(styleConfig.height);
+  widget.style.width = typeof w === 'number' ? toPx(w) : '';
+  widget.style.height = typeof h === 'number' ? toPx(h) : '';
 };
 
 const commitSizeToConfig = (
@@ -104,9 +88,7 @@ const commitSizeToConfig = (
   nextConfig.style = styleConfig;
 
   const serialised = serialiseWidgetConfig(nextConfig);
-  if (serialised) {
-    widget.setAttribute('data-widget-config', serialised);
-  }
+  if (serialised) widget.setAttribute('data-widget-config', serialised);
 
   applyInlineSize(widget, width, height);
   widget.dispatchEvent(new CustomEvent('widget:changed', { bubbles: true }));
@@ -115,155 +97,130 @@ const commitSizeToConfig = (
   editor.nodeChanged?.();
 };
 
+const isInResizeCorner = (
+  widget: HTMLElement,
+  clientX: number,
+  clientY: number,
+  cornerSize: number,
+): boolean => {
+  const r = widget.getBoundingClientRect();
+  return clientX >= r.right - cornerSize && clientY >= r.bottom - cornerSize;
+};
+
 export const attachWidgetResize = (
   editor: TinyMceEditor,
   options: WidgetResizeOptions = {},
 ): Cleanup => {
   const {
     widgetSelector = DEFAULT_WIDGET_SELECTOR,
-    handleClassName = DEFAULT_HANDLE_CLASSNAME,
     resizingClassName = DEFAULT_RESIZING_CLASSNAME,
     minWidth = DEFAULT_MIN_WIDTH,
     minHeight = DEFAULT_MIN_HEIGHT,
     maxWidth = DEFAULT_MAX_WIDTH,
     maxHeight = DEFAULT_MAX_HEIGHT,
+    cornerHitSize = DEFAULT_CORNER_HIT,
   } = options;
 
-  const records = new Map<HTMLElement, ResizeRecord>();
+  // 리스너 관리 (정리 위해 Map 사용)
+  const startListeners = new Map<HTMLElement, (e: PointerEvent) => void>();
 
-  const ensureWidgetHandle = (widget: HTMLElement) => {
-    const existing = records.get(widget);
-    if (existing) {
-      if (!widget.contains(existing.handle)) {
-        widget.appendChild(existing.handle);
-      }
-      return;
+  const ensureForWidget = (widget: HTMLElement) => {
+    widget.classList.add('widget-block');
+
+    if (!startListeners.has(widget)) {
+      const onPointerDown = (ev: PointerEvent): void => {
+        if (!isInResizeCorner(widget, ev.clientX, ev.clientY, cornerHitSize)) return;
+
+        ev.preventDefault();
+        ev.stopPropagation();
+
+        const doc: Document = widget.ownerDocument || document;
+        widget.dispatchEvent(new CustomEvent('widget:resizing-start', { bubbles: true }));
+
+        const rect: DOMRect = widget.getBoundingClientRect();
+        const startX = ev.clientX;
+        const startY = ev.clientY;
+        const origW = rect.width;
+        const origH = rect.height;
+
+        let w = origW;
+        let h = origH;
+
+        const prevDraggable = widget.getAttribute('draggable');
+        widget.setAttribute('draggable', 'false');
+        widget.classList.add(resizingClassName);
+
+        const onMove = (mv: PointerEvent): void => {
+          mv.preventDefault();
+          const dx = mv.clientX - startX;
+          const dy = mv.clientY - startY;
+          w = clamp(origW + dx, minWidth, maxWidth);
+          h = clamp(origH + dy, minHeight, maxHeight);
+          applyInlineSize(widget, w, h);
+        };
+
+        const onUp = (up: PointerEvent): void => {
+          onMove(up);
+
+          doc.removeEventListener('pointermove', onMove);
+          doc.removeEventListener('pointerup', onUp);
+
+          widget.classList.remove(resizingClassName);
+          if (prevDraggable === null) widget.removeAttribute('draggable');
+          else widget.setAttribute('draggable', prevDraggable);
+
+          const changed = Math.abs(w - origW) > 0.5 || Math.abs(h - origH) > 0.5;
+          if (changed) commitSizeToConfig(widget, editor, w, h);
+
+          widget.dispatchEvent(new CustomEvent('widget:resizing-end', { bubbles: true }));
+        };
+
+        doc.addEventListener('pointermove', onMove);
+        doc.addEventListener('pointerup', onUp);
+      };
+
+      // 캡처 단계에서 먼저 받아 TinyMCE 기본 동작보다 우선
+      widget.addEventListener('pointerdown', onPointerDown, true);
+      startListeners.set(widget, onPointerDown);
     }
 
-    const handle = widget.querySelector<HTMLElement>(`.${handleClassName}`) ?? document.createElement('span');
-    handle.classList.add(handleClassName);
-    handle.setAttribute('role', 'presentation');
-    handle.setAttribute('aria-hidden', 'true');
-    handle.tabIndex = -1;
-
-    const startResize = (event: PointerEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      const doc = widget.ownerDocument ?? document;
-      const pointerId = event.pointerId;
-      handle.setPointerCapture?.(pointerId);
-
-      const rect = widget.getBoundingClientRect();
-      const startX = event.clientX;
-      const startY = event.clientY;
-      const originalWidth = rect.width;
-      const originalHeight = rect.height;
-      const minWidthLimit = Math.min(minWidth, originalWidth);
-      const minHeightLimit = Math.min(minHeight, originalHeight);
-      const maxWidthLimit = Number.isFinite(maxWidth)
-        ? Math.max(maxWidth, originalWidth)
-        : Number.POSITIVE_INFINITY;
-      const maxHeightLimit = Number.isFinite(maxHeight)
-        ? Math.max(maxHeight, originalHeight)
-        : Number.POSITIVE_INFINITY;
-      const clampWidth = (value: number) => clampDimension(value, minWidthLimit, maxWidthLimit);
-      const clampHeight = (value: number) => clampDimension(value, minHeightLimit, maxHeightLimit);
-      let latestWidth = originalWidth;
-      let latestHeight = originalHeight;
-
-      const previousDraggable = widget.getAttribute('draggable');
-      widget.setAttribute('draggable', 'false');
-      widget.classList.add(resizingClassName);
-
-      const updateSize = (clientX: number, clientY: number) => {
-        latestWidth = clampWidth(originalWidth + (clientX - startX));
-        latestHeight = clampHeight(originalHeight + (clientY - startY));
-        applyInlineSize(widget, latestWidth, latestHeight);
-      };
-
-      const handlePointerMove = (moveEvent: PointerEvent) => {
-        updateSize(moveEvent.clientX, moveEvent.clientY);
-      };
-
-      const handlePointerUp = (upEvent: PointerEvent) => {
-        updateSize(upEvent.clientX, upEvent.clientY);
-
-        handle.releasePointerCapture?.(pointerId);
-        doc.removeEventListener('pointermove', handlePointerMove);
-        doc.removeEventListener('pointerup', handlePointerUp);
-
-        widget.classList.remove(resizingClassName);
-
-        if (previousDraggable === null) {
-          widget.removeAttribute('draggable');
-        } else {
-          widget.setAttribute('draggable', previousDraggable);
-        }
-
-        const widthChanged = Math.abs(latestWidth - originalWidth) > 0.5;
-        const heightChanged = Math.abs(latestHeight - originalHeight) > 0.5;
-        if (widthChanged || heightChanged) {
-          commitSizeToConfig(widget, editor, latestWidth, latestHeight);
-        }
-      };
-
-      doc.addEventListener('pointermove', handlePointerMove);
-      doc.addEventListener('pointerup', handlePointerUp, { once: false });
-    };
-
-    handle.addEventListener('pointerdown', startResize);
-
-    if (!widget.contains(handle)) {
-      widget.appendChild(handle);
-    }
-
-    records.set(widget, { widget, handle, onPointerDown: startResize });
+    // 초기 사이즈 반영
+    syncSizeFromConfig(widget);
   };
 
-  const ensureHandles = () => {
+  const ensureAll = (): void => {
     const body = editor.getBody?.();
-    if (!body) {
-      return;
-    }
+    if (!body) return;
 
     const widgets = Array.from(body.querySelectorAll<HTMLElement>(widgetSelector));
-    const activeWidgets = new Set(widgets);
+    const current = new Set<HTMLElement>(widgets);
 
-    widgets.forEach((widget) => {
-      ensureWidgetHandle(widget);
-      syncSizeFromConfig(widget);
-    });
+    widgets.forEach((w: HTMLElement) => ensureForWidget(w));
 
-    Array.from(records.entries()).forEach(([widget, record]) => {
-      if (!activeWidgets.has(widget) || !body.contains(widget)) {
-        record.handle.removeEventListener('pointerdown', record.onPointerDown);
-        record.handle.remove();
-        records.delete(widget);
+    // 제거된 위젯 리스너 정리
+    startListeners.forEach((listener: (e: PointerEvent) => void, el: HTMLElement) => {
+      if (!current.has(el)) {
+        el.removeEventListener('pointerdown', listener, true);
+        startListeners.delete(el);
       }
     });
   };
 
-  editor.on?.('init', ensureHandles);
-  editor.on?.('SetContent', ensureHandles);
-  editor.on?.('NodeChange', ensureHandles);
+  editor.on?.('init', ensureAll);
+  editor.on?.('LoadContent', ensureAll);
+  editor.on?.('SetContent', ensureAll);
+  editor.on?.('NodeChange', ensureAll);
+  editor.on?.('Change', ensureAll);
+  editor.on?.('input', ensureAll);
 
-  const cleanup = () => {
-    records.forEach((record) => {
-      record.handle.removeEventListener('pointerdown', record.onPointerDown);
-      record.handle.remove();
+  const cleanup: Cleanup = () => {
+    startListeners.forEach((listener: (e: PointerEvent) => void, el: HTMLElement) => {
+      el.removeEventListener('pointerdown', listener, true);
     });
-    records.clear();
-
-    if (editor.off) {
-      editor.off('init', ensureHandles);
-      editor.off('SetContent', ensureHandles);
-      editor.off('NodeChange', ensureHandles);
-    }
+    startListeners.clear();
   };
 
   editor.on?.('remove', cleanup);
-
   return cleanup;
 };
 

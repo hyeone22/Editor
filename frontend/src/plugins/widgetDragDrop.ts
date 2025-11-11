@@ -21,24 +21,17 @@ const DEFAULT_ORDER_ATTRIBUTE = 'data-widget-order';
 
 type Cleanup = () => void;
 
-const updateOrderAttribute = (
-  widgets: HTMLElement[],
-  orderAttribute: string,
-) => {
+const updateOrderAttribute = (widgets: HTMLElement[], orderAttribute: string) => {
   widgets.forEach((element, index) => {
     const value = String(index);
     const previous = element.getAttribute(orderAttribute);
-    if (previous !== value) {
-      element.setAttribute(orderAttribute, value);
-    }
+    if (previous !== value) element.setAttribute(orderAttribute, value);
 
-    if (element.dataset.widgetOrder !== value) {
-      element.dataset.widgetOrder = value;
-    }
+    if (element.dataset.widgetOrder !== value) element.dataset.widgetOrder = value;
 
     if (previous !== value) {
       element.dispatchEvent(
-        new CustomEvent('widget:orderchange', {
+        new CustomEvent('widget:order-change', {
           bubbles: true,
           detail: { order: index, element },
         }),
@@ -62,17 +55,19 @@ export const attachWidgetDragDrop = (
 
   const ensureSortable = () => {
     const body = editor.getBody?.();
-    if (!body) {
-      return;
-    }
+    if (!body) return;
 
     if (currentContainer !== body) {
       sortableController?.destroy();
+      sortableController = null;
+      currentContainer = null;
+    }
+    if (!sortableController) {
       sortableController = createSortable({
         container: body,
         itemSelector: widgetSelector,
         draggingClassName,
-        onReorder: (widgets) => {
+        onReorder: (widgets: HTMLElement[]) => {
           updateOrderAttribute(widgets, orderAttribute);
           editor.fire?.('change');
           editor.setDirty?.(true);
@@ -86,13 +81,24 @@ export const attachWidgetDragDrop = (
     updateOrderAttribute(widgets, orderAttribute);
   };
 
-  const handleContentUpdate = () => {
-    ensureSortable();
+  const disableSortableTemporarily = () => {
+    sortableController?.destroy();
+    sortableController = null;
   };
+
+  const handleContentUpdate = () => ensureSortable();
 
   editor.on?.('init', ensureSortable);
   editor.on?.('SetContent', handleContentUpdate);
   editor.on?.('NodeChange', handleContentUpdate);
+
+  // 리사이즈 동안 sortable 비활성 → 종료 후 재활성
+  const body = editor.getBody?.();
+  const onResizingStart = () => disableSortableTemporarily();
+  const onResizingEnd = () => ensureSortable();
+
+  body?.addEventListener('widget:resizing-start', onResizingStart, true);
+  body?.addEventListener('widget:resizing-end', onResizingEnd, true);
 
   const cleanup = () => {
     sortableController?.destroy();
@@ -104,6 +110,9 @@ export const attachWidgetDragDrop = (
       editor.off('SetContent', handleContentUpdate);
       editor.off('NodeChange', handleContentUpdate);
     }
+
+    body?.removeEventListener('widget:resizing-start', onResizingStart, true);
+    body?.removeEventListener('widget:resizing-end', onResizingEnd, true);
   };
 
   editor.on?.('remove', cleanup);

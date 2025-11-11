@@ -1,3 +1,4 @@
+// TinyMceEditor.tsx
 import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ensureWidgetPlugin } from '../../plugins/widgetPlugin';
 import attachWidgetDragDrop from '../../plugins/widgetDragDrop';
@@ -120,6 +121,7 @@ const TinyMceEditor: FC = () => {
         '<li><strong>굵게</strong>, <em>기울임꼴</em>, <u>밑줄</u>과 같은 서식을 적용해 보세요.</li>',
         '<li>목록, 링크, 표 등 TinyMCE 기본 기능이 정상 동작하는지 확인할 수 있습니다.</li>',
         '</ul>',
+        // ✅ 기본은 flow 모드 (겹침 방지)
         `<div data-widget-type="table" data-widget-title="분기별 매출" data-widget-config='${sampleTableWidgetConfig}'></div>`,
         `<div data-widget-type="graph" data-widget-title="분기별 성장률" data-widget-config='${sampleGraphWidgetConfig}'></div>`,
         '<div data-widget-type="pageBreak" data-widget-title="페이지 나누기"></div>',
@@ -128,7 +130,7 @@ const TinyMceEditor: FC = () => {
     [sampleTextWidgetConfig, sampleTableWidgetConfig, sampleGraphWidgetConfig],
   );
 
-  // ===== 삽입 버튼 핸들러 =====
+  // ===== 삽입 버튼 (기본 flow, 필요 시 free 로 토글해서 쓰면 됨) =====
   const handleInsertTextWidget = useCallback(() => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -205,14 +207,18 @@ const TinyMceEditor: FC = () => {
 
         "body{ font-family:'Noto Sans KR',system-ui,-apple-system,'Segoe UI',sans-serif; font-size:16px; color:var(--ink); position:relative; }",
 
+        /* 🚫 금지 커서 방지 */
+        '[data-widget-type]{ cursor: default !important; }',
+        '.widget-block{ cursor: default !important; }',
+
         '/* ========= WIDGET HOST ========= */',
         '[data-widget-type]{ position:relative; display:inline-block; vertical-align:top; width:100%; max-width:100%; min-width:240px; box-sizing:border-box; margin:10px; }',
 
-        /* 자유배치일 때는 절대배치 */
+        /* free 모드일 때만 절대배치 */
         '[data-widget-type][data-position="free"]{ position:absolute !important; width:auto !important; max-width:none !important; min-width:120px; margin:0; box-sizing:border-box; z-index:1; }',
         '[data-widget-type][data-position="free"] .widget-block{ width:auto !important; }',
 
-        '/* 카드 */',
+        '/* 카드 스타일 */',
         '.widget-block{ background:var(--card-bg); border:1px solid var(--card-border); border-radius:14px; padding:16px; box-shadow:0 1px 1px rgba(2,6,23,.04), 0 2px 4px rgba(2,6,23,.06); width:100%; box-sizing:border-box; overflow:hidden; }',
         ".widget-block::before{ content:''; position:absolute; inset:0; border-radius:inherit; background:var(--card-grad); pointer-events:none; }",
         '.widget-block:hover{ box-shadow:0 4px 10px rgba(2,6,23,.08); transform:translateY(-1px); transition:box-shadow .15s ease, transform .15s ease; }',
@@ -223,12 +229,18 @@ const TinyMceEditor: FC = () => {
         /* 모서리 리사이즈 힌트 */
         ".widget-block::after{ content:''; position:absolute; right:.6rem; bottom:.6rem; width:12px; height:12px; border-right:2px solid var(--accent); border-bottom:2px solid var(--accent); opacity:.85; pointer-events:none }",
 
-        '.widget-resize-handle{ position:absolute; right:.6rem; bottom:.6rem; width:16px; height:16px; border:2px solid var(--accent); border-radius:4px; background:#fff; display:flex; align-items:center; justify-content:center; cursor:se-resize; z-index:1000; pointer-events:auto; }',
+        /* 리사이즈 핸들 */
+        '.widget-resize-handle{ position:absolute; width:12px; height:12px; background:#fff; border:2px solid #0ea5e9; border-radius:4px; z-index:1000; pointer-events:auto; }',
+        '.widget-resize-handle--se{ right:6px; bottom:6px; cursor:nwse-resize; }',
+        '.widget-resize-handle--ne{ right:6px; top:6px;    cursor:nesw-resize; }',
+        '.widget-resize-handle--sw{ left:6px;  bottom:6px; cursor:nesw-resize; }',
+        '.widget-resize-handle--nw{ left:6px;  top:6px;    cursor:nwse-resize; }',
+        '.widget-resize-handle--e{  right:-6px; top:50%; transform:translateY(-50%); cursor:ew-resize; }',
+        '.widget-resize-handle--w{  left:-6px;  top:50%; transform:translateY(-50%); cursor:ew-resize; }',
+        '.widget-resize-handle--s{  bottom:-6px; left:50%; transform:translateX(-50%); cursor:ns-resize; }',
+        '.widget-resize-handle--n{  top:-6px;    left:50%; transform:translateX(-50%); cursor:ns-resize; }',
 
-        /* 이미지 위젯 */
-        '[data-widget-type="image"] img{ display:block; width:100%; height:auto; max-width:100%; }',
-
-        /* 테이블/그래프 스타일 (생략 없이 유지) */
+        /* 테이블 */
         '.table-widget{ display:grid; gap:12px }',
         '.table-widget__table-container{ overflow:auto; border-radius:10px; border:1px solid var(--card-border); background:linear-gradient(180deg,rgba(148,163,184,.08),rgba(148,163,184,0)) }',
         '.table-widget__table{ width:100%; border-collapse:collapse; min-width:520px }',
@@ -238,6 +250,7 @@ const TinyMceEditor: FC = () => {
         '.table-widget__summary{ display:grid; gap:6px; margin:4px 0 0 }',
         '.table-widget__footnote{ color:var(--ink-sub); font-size:12px; margin-top:6px }',
 
+        /* 그래프 */
         '.graph-widget{ display:grid; gap:10px }',
         '.graph-widget__canvas{ position:relative; height:320px; border:1px solid var(--card-border); border-radius:10px; background:linear-gradient(180deg,rgba(148,163,184,.08),rgba(148,163,184,0)) }',
         '.graph-widget__note{ margin-top:6px; font-size:12px; color:var(--ink-sub) }',
@@ -287,19 +300,21 @@ const TinyMceEditor: FC = () => {
           toolbar_mode: 'wrap',
           toolbar_sticky: true,
 
-          // ✅ TinyMCE 6 기준 플러그인 구성(무료)
           plugins: [
             'advlist autolink lists link table code preview searchreplace visualblocks fullscreen insertdatetime',
             'importcss',
             'widgetBlocks',
           ].join(' '),
 
-          // ✅ 데모 수준 툴바 (폰트/크기/줄간격 포함)
           toolbar: [
             'undo redo | blocks fontfamily fontsize lineheight | bold italic underline forecolor backcolor |',
             'alignleft aligncenter alignright alignjustify | bullist numlist outdent indent |',
             'link table | removeformat | preview fullscreen | code',
           ].join(' '),
+
+          // 충돌 방지
+          object_resizing: false,
+          quickbars_selection_toolbar: false,
 
           // 폰트/크기 프리셋
           font_family_formats:
@@ -314,20 +329,20 @@ const TinyMceEditor: FC = () => {
           resize: true,
 
           extended_valid_elements:
-            'div[data-widget-type|data-widget-id|data-widget-config|data-widget-title|data-widget-version|data-widget-order|data-page-break|data-keep-with-next|data-spacing|data-display-label],' +
+            'div[data-widget-type|data-widget-id|data-widget-config|data-widget-title|data-widget-version|data-widget-order|data-page-break|data-keep-with-next|data-spacing|data-display-label|data-position],' +
             'span[class|role|aria-hidden|contenteditable|tabindex|style|data-mce-bogus|draggable|unselectable]',
 
           setup: (editor: TinyMceInstance) => {
             editorRef.current = editor;
 
-            // 플러그인 장착(중복 방지: 한 번만)
-            dragDropCleanupRef.current?.();
-            dragDropCleanupRef.current = attachWidgetDragDrop(editor);
-            resizeCleanupRef.current?.();
-            resizeCleanupRef.current = attachWidgetResize(editor, { cornerHitSize: 22 });
-
             editor.on('init', () => {
               setStatusSafe('ready');
+
+              // 플러그인 장착(한 번만)
+              dragDropCleanupRef.current?.();
+              dragDropCleanupRef.current = attachWidgetDragDrop(editor);
+              resizeCleanupRef.current?.();
+              resizeCleanupRef.current = attachWidgetResize(editor);
 
               // 더블클릭/Enter/Space → edit
               const body = editor.getBody?.();
@@ -366,7 +381,6 @@ const TinyMceEditor: FC = () => {
               }
             });
 
-            // 키보드 접근성
             editor.on('KeyDown', (ev) => {
               if (ev.key !== 'Enter' && ev.key !== ' ') return;
               const anchor = editor.selection?.getNode?.();
@@ -389,7 +403,6 @@ const TinyMceEditor: FC = () => {
     };
 
     // ===== TinyMCE 스크립트 로딩 =====
-    // 폰트/크기/줄간격 컨트롤 보장을 위해 6 버전 고정
     const CHANNEL = '6';
     const scriptUrl = `https://cdn.tiny.cloud/1/${apiKey}/tinymce/${CHANNEL}/tinymce.min.js`;
     const handleScriptLoad = () => void initialiseEditor();

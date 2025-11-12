@@ -4,7 +4,7 @@ import { ensureWidgetPlugin } from '../../plugins/widgetPlugin';
 import attachWidgetDragDrop from '../../plugins/widgetDragDrop';
 import attachWidgetResize from '../../plugins/widgetResize';
 
-// 커스텀 위젯 렌더러 등록
+// 커스텀 위젯 렌더러 등록(에디터용 런타임은 기존처럼 유지)
 import '../widgets/TextWidget';
 import '../widgets/TableWidget';
 import '../widgets/GraphWidget';
@@ -14,6 +14,10 @@ type EditorStatus = 'loading' | 'ready' | 'error';
 
 const TINYMCE_SCRIPT_ID = 'tinymce-cdn-script';
 const DEFAULT_API_KEY = 'no-api-key';
+const TINYMCE_CHANNEL = '6';
+
+// === Upload ===
+const UPLOADCARE_PUBLIC_KEY = 'a3920bdf61b6edc8ea74'; // 네 키
 
 interface TinyMcePluginManager {
   add: (name: string, callback: (editor: unknown) => void) => void;
@@ -34,6 +38,7 @@ interface TinyMceInstance {
   fire?: (eventName: string, data?: Record<string, unknown>) => void;
   nodeChanged?: () => void;
   setDirty?: (state: boolean) => void;
+  execCommand?: (cmd: string, ui?: boolean, value?: unknown) => void;
 }
 interface TinyMceGlobal {
   init: (
@@ -44,9 +49,274 @@ interface TinyMceGlobal {
 declare global {
   interface Window {
     tinymce?: TinyMceGlobal & { majorVersion?: string; minorVersion?: string };
+    uploadcare?: any;
   }
 }
 
+/* -----------------------------
+   프리뷰 전용 위젯 프리렌더러
+   - Preview iframe 안에서 정적 HTML/SVG로 다시 그림
+--------------------------------*/
+function mountAllWidgets(doc: Document) {
+  const hosts = Array.from(doc.querySelectorAll<HTMLElement>('[data-widget-type]'));
+  hosts.forEach((host) => {
+    const type = host.getAttribute('data-widget-type');
+    const cfgRaw = host.getAttribute('data-widget-config');
+    let cfg: any = null;
+    try {
+      cfg = cfgRaw ? JSON.parse(cfgRaw.replaceAll('&apos;', "'").replaceAll('&#39;', "'")) : null;
+    } catch {
+      cfg = null;
+    }
+
+    // 안쪽 초기화(중복 렌더 방지)
+    host.innerHTML = '';
+
+    if (type === 'text') {
+      renderTextWidget(host, cfg);
+    } else if (type === 'table') {
+      renderTableWidget(host, cfg);
+    } else if (type === 'graph') {
+      renderGraphWidget(host, cfg);
+    } else if (type === 'pageBreak') {
+      renderPageBreak(host);
+    }
+  });
+}
+
+function renderTextWidget(host: HTMLElement, cfg: any) {
+  const wrapper = host.ownerDocument.createElement('div');
+  wrapper.className = 'widget-block text-widget';
+  wrapper.innerHTML =
+    cfg?.content ?? '<p class="text-widget__placeholder">텍스트 위젯 내용이 없습니다.</p>';
+  host.appendChild(wrapper);
+}
+
+function renderTableWidget(host: HTMLElement, cfg: any) {
+  const d = host.ownerDocument;
+  const wrap = d.createElement('div');
+  wrap.className = 'widget-block table-widget';
+
+  const title = host.getAttribute('data-widget-title');
+  if (title) {
+    const h = d.createElement('div');
+    h.style.fontWeight = '700';
+    h.style.marginBottom = '8px';
+    h.textContent = String(title);
+    wrap.appendChild(h);
+  }
+
+  const container = d.createElement('div');
+  container.className = 'table-widget__table-container';
+
+  const table = d.createElement('table');
+  table.className = 'table-widget__table';
+
+  // head
+  if (cfg?.showHeader !== false && Array.isArray(cfg?.columns)) {
+    const thead = d.createElement('thead');
+    const tr = d.createElement('tr');
+    cfg.columns.forEach((c: any) => {
+      const th = d.createElement('th');
+      th.textContent = c?.label ?? '';
+      th.style.textAlign = c?.align ?? 'left';
+      tr.appendChild(th);
+    });
+    thead.appendChild(tr);
+    table.appendChild(thead);
+  }
+
+  // body
+  const tbody = d.createElement('tbody');
+  (cfg?.rows ?? []).forEach((row: any) => {
+    const tr = d.createElement('tr');
+    (row?.cells ?? []).forEach((cell: any, i: number) => {
+      const td = d.createElement('td');
+      const col = cfg?.columns?.[i];
+      td.style.textAlign = col?.align ?? 'left';
+      td.textContent = formatCell(cell?.value, col?.format);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+
+  container.appendChild(table);
+  wrap.appendChild(container);
+
+  // summary
+  if (Array.isArray(cfg?.summary) && cfg.summary.length) {
+    const sum = d.createElement('div');
+    sum.className = 'table-widget__summary';
+    cfg.summary.forEach((s: any) => {
+      const line = d.createElement('div');
+      line.style.textAlign = s?.align ?? 'right';
+      line.textContent = `${s?.label ?? ''} ${s?.value ?? ''}`.trim();
+      sum.appendChild(line);
+    });
+    wrap.appendChild(sum);
+  }
+
+  if (cfg?.footnote) {
+    const note = d.createElement('div');
+    note.className = 'table-widget__footnote';
+    note.textContent = String(cfg.footnote);
+    wrap.appendChild(note);
+  }
+
+  host.appendChild(wrap);
+}
+
+function formatCell(v: any, format?: string) {
+  if (format === 'currency' && typeof v === 'number') {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0,
+    }).format(v);
+  }
+  if (format === 'percent' && typeof v === 'number') {
+    return `${(v * 100).toFixed(1)}%`;
+  }
+  return String(v ?? '');
+}
+
+function renderGraphWidget(host: HTMLElement, cfg: any) {
+  // 간단 SVG 라인/바 차트 렌더러(프리뷰 전용, 의존성 없음)
+  const d = host.ownerDocument;
+  const wrap = d.createElement('div');
+  wrap.className = 'widget-block graph-widget';
+
+  const title = host.getAttribute('data-widget-title');
+  if (title) {
+    const h = d.createElement('div');
+    h.style.fontWeight = '700';
+    h.style.marginBottom = '8px';
+    h.textContent = String(title);
+    wrap.appendChild(h);
+  }
+
+  const w = 760;
+  const h = 320;
+  const pad = 32;
+
+  const svg = d.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', String(w));
+  svg.setAttribute('height', String(h));
+  svg.classList.add('graph-widget__canvas');
+
+  const labels: string[] = cfg?.labels ?? [];
+  const datasets: Array<{ id?: string; label?: string; data: number[] }> = cfg?.datasets ?? [];
+
+  // 값 범위 계산
+  const allValues = datasets.flatMap((ds) => ds.data);
+  const minV = Math.min(...allValues, 0);
+  const maxV = Math.max(...allValues, 1);
+  const yScale = (val: number) => h - pad - ((val - minV) / (maxV - minV || 1)) * (h - pad * 2);
+  const xScale = (i: number) => pad + (i * (w - pad * 2)) / Math.max(labels.length - 1, 1);
+
+  // 축
+  const axis = d.createElementNS(svg.namespaceURI, 'g');
+  const xLine = d.createElementNS(svg.namespaceURI, 'line');
+  xLine.setAttribute('x1', String(pad));
+  xLine.setAttribute('y1', String(h - pad));
+  xLine.setAttribute('x2', String(w - pad));
+  xLine.setAttribute('y2', String(h - pad));
+  xLine.setAttribute('stroke', 'currentColor');
+  xLine.setAttribute('opacity', '0.3');
+  axis.appendChild(xLine);
+
+  const yLine = d.createElementNS(svg.namespaceURI, 'line');
+  yLine.setAttribute('x1', String(pad));
+  yLine.setAttribute('y1', String(pad));
+  yLine.setAttribute('x2', String(pad));
+  yLine.setAttribute('y2', String(h - pad));
+  yLine.setAttribute('stroke', 'currentColor');
+  yLine.setAttribute('opacity', '0.3');
+  axis.appendChild(yLine);
+  svg.appendChild(axis);
+
+  // 라벨(간단)
+  labels.forEach((lab, i) => {
+    const tx = d.createElementNS(svg.namespaceURI, 'text');
+    tx.textContent = lab;
+    tx.setAttribute('x', String(xScale(i)));
+    tx.setAttribute('y', String(h - pad + 18));
+    tx.setAttribute('text-anchor', 'middle');
+    tx.setAttribute('font-size', '12');
+    tx.setAttribute('fill', 'currentColor');
+    tx.setAttribute('opacity', '0.6');
+    svg.appendChild(tx);
+  });
+
+  // 데이터셋
+  const palette = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+  datasets.forEach((ds, idx) => {
+    if ((cfg?.chartType ?? 'line') === 'bar') {
+      // 막대
+      const barW = Math.min(36, (w - pad * 2) / (labels.length * (datasets.length + 1)));
+      ds.data.forEach((v, i) => {
+        const x = xScale(i) - (datasets.length / 2) * barW + idx * barW;
+        const y = yScale(v);
+        const rect = d.createElementNS(svg.namespaceURI, 'rect');
+        rect.setAttribute('x', String(x - barW / 2));
+        rect.setAttribute('y', String(y));
+        rect.setAttribute('width', String(barW));
+        rect.setAttribute('height', String(h - pad - y));
+        rect.setAttribute('fill', palette[idx % palette.length]);
+        rect.setAttribute('opacity', '0.85');
+        svg.appendChild(rect);
+      });
+    } else {
+      // 라인
+      const path = d.createElementNS(svg.namespaceURI, 'path');
+      const dStr = ds.data
+        .map((v, i) => `${i === 0 ? 'M' : 'L'} ${xScale(i)} ${yScale(v)}`)
+        .join(' ');
+      path.setAttribute('d', dStr);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', palette[idx % palette.length]);
+      path.setAttribute('stroke-width', '2');
+      svg.appendChild(path);
+
+      // 포인트
+      ds.data.forEach((v, i) => {
+        const circle = d.createElementNS(svg.namespaceURI, 'circle');
+        circle.setAttribute('cx', String(xScale(i)));
+        circle.setAttribute('cy', String(yScale(v)));
+        circle.setAttribute('r', '3.5');
+        circle.setAttribute('fill', palette[idx % palette.length]);
+        svg.appendChild(circle);
+      });
+    }
+  });
+
+  wrap.appendChild(svg);
+
+  if (cfg?.options?.yAxisLabel || cfg?.options?.xAxisLabel) {
+    const note = d.createElement('div');
+    note.className = 'graph-widget__note';
+    note.textContent = [cfg?.options?.xAxisLabel, cfg?.options?.yAxisLabel]
+      .filter(Boolean)
+      .join(' / ');
+    wrap.appendChild(note);
+  }
+
+  host.appendChild(wrap);
+}
+
+function renderPageBreak(host: HTMLElement) {
+  host.setAttribute('data-page-break', 'true');
+  const d = host.ownerDocument;
+  const wrap = d.createElement('div');
+  wrap.className = 'widget-block page-break-widget';
+  wrap.textContent = '페이지 나누기 — 여기서 새 페이지가 시작됩니다';
+  host.appendChild(wrap);
+}
+
+/* -----------------------------
+   에디터 컴포넌트
+--------------------------------*/
 const TinyMceEditor: FC = () => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const editorRef = useRef<TinyMceInstance | null>(null);
@@ -61,7 +331,7 @@ const TinyMceEditor: FC = () => {
   const sampleTextWidgetConfig = useMemo(() => {
     const config = {
       content:
-        '<p><strong>텍스트 위젯</strong>은 보고서에서 반복적으로 사용하는 설명이나 코멘트를 저장하는 데 사용할 수 있습니다.</p>',
+        '<p><strong>텍스트 위젯</strong>은 보고서에서 반복적으로 사용하는 설명이나 코멘트를 저장하는 데 사용할 수 있습니다.</p><p>Enter 키를 눌러 편집하세요.</p>',
       richText: true,
       style: { alignment: 'left', fontSize: 15, lineHeight: 1.6 },
     };
@@ -121,16 +391,15 @@ const TinyMceEditor: FC = () => {
         '<li><strong>굵게</strong>, <em>기울임꼴</em>, <u>밑줄</u>과 같은 서식을 적용해 보세요.</li>',
         '<li>목록, 링크, 표 등 TinyMCE 기본 기능이 정상 동작하는지 확인할 수 있습니다.</li>',
         '</ul>',
-        // ✅ 기본은 flow 모드 (겹침 방지)
         `<div data-widget-type="table" data-widget-title="분기별 매출" data-widget-config='${sampleTableWidgetConfig}'></div>`,
         `<div data-widget-type="graph" data-widget-title="분기별 성장률" data-widget-config='${sampleGraphWidgetConfig}'></div>`,
-        '<div data-widget-type="pageBreak" data-widget-title="페이지 나누기"></div>',
+        '<div data-widget-type="pageBreak" data-widget-title="페이지 나누기" data-page-break="true"></div>',
         `<div data-widget-type="text" data-widget-title="보고서 요약" data-widget-config='${sampleTextWidgetConfig}'></div>`,
       ].join(''),
     [sampleTextWidgetConfig, sampleTableWidgetConfig, sampleGraphWidgetConfig],
   );
 
-  // ===== 삽입 버튼 (기본 flow, 필요 시 free 로 토글해서 쓰면 됨) =====
+  // ===== 위젯 삽입 버튼 =====
   const handleInsertTextWidget = useCallback(() => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -192,7 +461,7 @@ const TinyMceEditor: FC = () => {
     const editor = editorRef.current;
     if (!editor) return;
     editor.insertContent(
-      '<div data-widget-type="pageBreak" data-widget-title="페이지 나누기"></div>',
+      '<div data-widget-type="pageBreak" data-widget-title="페이지 나누기" data-page-break="true"></div>',
     );
     editor.focus?.();
   }, []);
@@ -204,33 +473,19 @@ const TinyMceEditor: FC = () => {
         '/* ========= THEME TOKENS ========= */',
         ':root{ --card-bg:#f8fafc; --card-border:#e2e8f0; --card-grad:linear-gradient(180deg,rgba(148,163,184,.25),rgba(148,163,184,0)); --ink:#0f172a; --ink-sub:#475569; --accent:#0ea5e9; --accent-ink:#0369a1; --ring:0 0 0 3px rgba(14,165,233,.35); }',
         '@media (prefers-color-scheme: dark){ :root{ --card-bg:#0b1220; --card-border:#1f2937; --card-grad:linear-gradient(180deg,rgba(148,163,184,.18),rgba(148,163,184,0)); --ink:#e5e7eb; --ink-sub:#9ca3af; --accent:#22d3ee; --accent-ink:#67e8f9; --ring:0 0 0 3px rgba(34,211,238,.4); } }',
-
         "body{ font-family:'Noto Sans KR',system-ui,-apple-system,'Segoe UI',sans-serif; font-size:16px; color:var(--ink); position:relative; }",
-
-        /* 🚫 금지 커서 방지 */
         '[data-widget-type]{ cursor: default !important; }',
         '.widget-block{ cursor: default !important; }',
-
-        '/* ========= WIDGET HOST ========= */',
-        // ↳ block + auto margin (폭은 유지: 100% 또는 resize된 px 그대로)
         '[data-widget-type]{ position:relative; display:block; width:100%; max-width:100%; min-width:240px; box-sizing:border-box; margin:10px auto; }',
-
-        /* free 모드일 때만 절대배치 */
         '[data-widget-type][data-position="free"]{ position:absolute !important; width:auto !important; max-width:none !important; min-width:120px; margin:0; box-sizing:border-box; z-index:1; }',
         '[data-widget-type][data-position="free"] .widget-block{ width:auto !important; }',
-
-        '/* 카드 스타일 (host 폭을 그대로 사용) */',
-        '.widget-block{ background:var(--card-bg); border:1px solid var(--card-border); border-radius:14px; padding:16px; box-shadow:0 1px 1px rgba(2,6,23,.04), 0 2px 4px rgba(2,6,23,.06); width:100%; box-sizing:border-box; overflow:hidden; }',
+        '.widget-block{ background:var(--card-bg); border:1px solid var(--card-border); border-radius:14px; padding:16px; box-shadow:0 1px 1px rgba(2,6,23,.04), 0 2px 4px rgba(2,6,23,.06); width:100%; box-sizing:border-box; overflow:hidden; color:inherit; }',
         ".widget-block::before{ content:''; position:absolute; inset:0; border-radius:inherit; background:var(--card-grad); pointer-events:none; }",
         '.widget-block:hover{ box-shadow:0 4px 10px rgba(2,6,23,.08); transform:translateY(-1px); transition:box-shadow .15s ease, transform .15s ease; }',
         '.widget-block:focus-within{ box-shadow:var(--ring), 0 6px 14px rgba(2,6,23,.10); }',
         '.widget-block--dragging{ opacity:.85; cursor:grabbing; border-style:solid }',
         '.widget-block--resizing{ box-shadow:var(--ring); cursor:se-resize }',
-
-        /* 모서리 리사이즈 힌트 */
         ".widget-block::after{ content:''; position:absolute; right:.6rem; bottom:.6rem; width:12px; height:12px; border-right:2px solid var(--accent); border-bottom:2px solid var(--accent); opacity:.85; pointer-events:none }",
-
-        /* 리사이즈 핸들 */
         '.widget-resize-handle{ position:absolute; width:12px; height:12px; background:#fff; border:2px solid #0ea5e9; border-radius:4px; z-index:1000; pointer-events:auto; }',
         '.widget-resize-handle--se{ right:6px; bottom:6px; cursor:nwse-resize; }',
         '.widget-resize-handle--ne{ right:6px; top:6px;    cursor:nesw-resize; }',
@@ -240,8 +495,6 @@ const TinyMceEditor: FC = () => {
         '.widget-resize-handle--w{  left:-6px;  top:50%; transform:translateY(-50%); cursor:ew-resize; }',
         '.widget-resize-handle--s{  bottom:-6px; left:50%; transform:translateX(-50%); cursor:ns-resize; }',
         '.widget-resize-handle--n{  top:-6px;    left:50%; transform:translateX(-50%); cursor:ns-resize; }',
-
-        /* 테이블 */
         '.table-widget{ display:grid; gap:12px }',
         '.table-widget__table-container{ overflow:auto; border-radius:10px; border:1px solid var(--card-border); background:linear-gradient(180deg,rgba(148,163,184,.08),rgba(148,163,184,0)) }',
         '.table-widget__table{ width:100%; border-collapse:collapse; min-width:520px }',
@@ -250,22 +503,12 @@ const TinyMceEditor: FC = () => {
         '.table-widget__table tbody td{ padding:10px 12px; border-bottom:1px dashed var(--card-border); vertical-align:top; font-size:14px }',
         '.table-widget__summary{ display:grid; gap:6px; margin:4px 0 0 }',
         '.table-widget__footnote{ color:var(--ink-sub); font-size:12px; margin-top:6px }',
-
-        /* 그래프 */
         '.graph-widget{ display:grid; gap:10px }',
-        '.graph-widget__canvas{ position:relative; height:320px; border:1px solid var(--card-border); border-radius:10px; background:linear-gradient(180deg,rgba(148,163,184,.08),rgba(148,163,184,0)) }',
+        '.graph-widget__canvas{ background:#fff; border:1px solid var(--card-border); border-radius:10px; }',
         '.graph-widget__note{ margin-top:6px; font-size:12px; color:var(--ink-sub) }',
-
-        /* ===== 정렬: host 자체 이동 (폭은 그대로) ===== */
         '[data-widget-type]:not([data-position="free"])[data-align="left"]  { margin-left:0;    margin-right:auto; }',
         '[data-widget-type]:not([data-position="free"])[data-align="center"]{ margin-left:auto; margin-right:auto; }',
         '[data-widget-type]:not([data-position="free"])[data-align="right"] { margin-left:auto; margin-right:0; }',
-        // (텍스트를 같이 정렬하고 싶으면 아래 3줄을 켜세요)
-        // '[data-widget-type][data-align="left"]  .widget-block{ text-align:left; }',
-        // '[data-widget-type][data-align="center"] .widget-block{ text-align:center; }',
-        // '[data-widget-type][data-align="right"] .widget-block{ text-align:right; }',
-
-        /* 프린트 */
         '@media print{',
         "  [data-page-break='true']{ break-after:page; page-break-after:always }",
         "  [data-page-break='true'][data-keep-with-next='true']{ break-inside:avoid; page-break-inside:avoid }",
@@ -275,6 +518,59 @@ const TinyMceEditor: FC = () => {
       ].join('\n'),
     [],
   );
+
+  // ===== 업로드(Uploadcare → base64) =====
+  async function uploadViaUploadcare(): Promise<string | null> {
+    try {
+      if (!window.uploadcare || !UPLOADCARE_PUBLIC_KEY) return null;
+      const dialog = window.uploadcare.openDialog(null, {
+        publicKey: UPLOADCARE_PUBLIC_KEY,
+        multiple: false,
+        imagesOnly: true,
+        crop: 'free',
+      });
+      const file = await dialog.done();
+      const fileInfo = await file.promise();
+      return fileInfo?.cdnUrl || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function images_upload_handler(blobInfo: any) {
+    if (window.uploadcare) {
+      const maybe = await uploadViaUploadcare();
+      if (maybe) return maybe;
+    }
+    return blobInfo.base64(); // fallback
+  }
+
+  const file_picker_callback = async (
+    cb: (url: string, meta?: Record<string, any>) => void,
+    _value: string,
+    meta: { filetype: 'image' | 'media' | 'file' },
+  ) => {
+    if (meta.filetype !== 'image') return;
+
+    const fromUploadcare = await uploadViaUploadcare();
+    if (fromUploadcare) {
+      cb(fromUploadcare, { alt: 'image' });
+      return;
+    }
+
+    // base64 임시
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => cb(String(reader.result), { alt: file.name });
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
 
   useEffect(() => {
     const target = textareaRef.current;
@@ -304,29 +600,70 @@ const TinyMceEditor: FC = () => {
 
         const result = await window.tinymce.init({
           target,
-          height: 520,
+          height: 560,
           branding: false,
-          menubar: 'file edit view insert format tools table help',
-          toolbar_mode: 'wrap',
-          toolbar_sticky: true,
 
           plugins: [
             'advlist autolink lists link table code preview searchreplace visualblocks fullscreen insertdatetime',
             'importcss',
+            'image media',
+            'pagebreak',
+            'charmap codesample',
+            'wordcount',
+            'quickbars',
+            'help',
             'widgetBlocks',
           ].join(' '),
+
+          menubar: 'file edit view insert format tools table help',
+          toolbar_mode: 'wrap',
+          toolbar_sticky: true,
+
+          // 업로드
+          automatic_uploads: true,
+          images_reuse_filename: true,
+          paste_data_images: true,
+          file_picker_types: 'image',
+          file_picker_callback,
+          images_upload_handler,
 
           toolbar: [
             'undo redo | blocks fontfamily fontsize lineheight | bold italic underline forecolor backcolor |',
             'alignleft aligncenter alignright alignjustify | bullist numlist outdent indent |',
-            'link table | removeformat | preview fullscreen | code',
+            'link table | image media | codesample charmap pagebreak | searchreplace |',
+            'removeformat | preview fullscreen | code | help',
           ].join(' '),
 
-          // 충돌 방지
-          object_resizing: false,
-          quickbars_selection_toolbar: false,
+          menu: {
+            file: { title: 'File', items: 'preview print | newdocument restoredraft | fullscreen' },
+            edit: {
+              title: 'Edit',
+              items: 'undo redo | cut copy paste | selectall | searchreplace',
+            },
+            view: { title: 'View', items: 'visualaid visualblocks | preview fullscreen' },
+            insert: {
+              title: 'Insert',
+              items: 'link image media table charmap pagebreak codesample',
+            },
+            format: {
+              title: 'Format',
+              items:
+                'bold italic underline strikethrough forecolor backcolor | blocks fontfamily fontsize lineheight | removeformat',
+            },
+            tools: { title: 'Tools', items: 'code | wordcount' },
+            table: {
+              title: 'Table',
+              items: 'inserttable | cell row column | tableprops deletetable',
+            },
+            help: { title: 'Help', items: 'help' },
+          },
 
-          // 폰트/크기 프리셋
+          quickbars_selection_toolbar:
+            'bold italic underline | quicklink | forecolor backcolor | blocks',
+          quickbars_insert_toolbar: 'image media table',
+
+          object_resizing: false,
+
           font_family_formats:
             'Inter=Inter,system-ui,sans-serif;' +
             'Noto Sans KR=Noto Sans KR,Apple SD Gothic Neo,Malgun Gothic,sans-serif;' +
@@ -339,20 +676,43 @@ const TinyMceEditor: FC = () => {
           resize: true,
 
           extended_valid_elements:
-            // ⬇️ data-align 허용 추가
             'div[data-widget-type|data-align|data-widget-id|data-widget-config|data-widget-title|data-widget-version|data-widget-order|data-page-break|data-keep-with-next|data-spacing|data-display-label|data-position],' +
             'span[class|role|aria-hidden|contenteditable|tabindex|style|data-mce-bogus|draggable|unselectable]',
 
           setup: (editor: TinyMceInstance) => {
             editorRef.current = editor;
 
-            // ===== 정렬 브릿지: 툴바/단축키 정렬을 위젯 host에 매핑 =====
+            // 프리뷰 열릴 때 스타일/위젯 주입
+            editor.on('PreviewOpen', () => {
+              const iframe = document.querySelector(
+                '.tox-dialog__body-preview iframe',
+              ) as HTMLIFrameElement | null;
+              const doc = iframe?.contentDocument;
+              if (!doc) return;
+
+              // 1) 스타일 토큰 주입(회색 문제 해결)
+              const styleEl = doc.createElement('style');
+              styleEl.textContent =
+                contentStyle +
+                `
+                body { color: var(--ink, #0f172a) !important; }
+                .widget-block { color: inherit !important; }
+              `;
+              doc.head.appendChild(styleEl);
+
+              // 2) 프리뷰 문서에서 위젯 정적 렌더
+              try {
+                mountAllWidgets(doc);
+              } catch (err) {
+                console.error('Preview widget mount error', err);
+              }
+            });
+
+            // ===== 위젯 정렬 브리지 =====
             const applyWidgetAlign = (cmd: string) => {
               const anchor = editor.selection?.getNode?.();
               const host = anchor?.closest?.('[data-widget-type]') as HTMLElement | null;
               if (!host) return false;
-
-              // free(절대배치)는 정렬 무시
               if (host.getAttribute('data-position') === 'free') return false;
 
               let align: 'left' | 'center' | 'right' | 'justify' = 'left';
@@ -375,11 +735,10 @@ const TinyMceEditor: FC = () => {
               }
             });
 
-            // ===== 초기화 이후 플러그인 장착/핸들러 =====
             editor.on('init', () => {
               setStatusSafe('ready');
 
-              // 플러그인 장착(한 번만)
+              // 드래그/리사이즈 플러그인 장착
               dragDropCleanupRef.current?.();
               dragDropCleanupRef.current = attachWidgetDragDrop(editor);
               resizeCleanupRef.current?.();
@@ -444,8 +803,7 @@ const TinyMceEditor: FC = () => {
     };
 
     // ===== TinyMCE 스크립트 로딩 =====
-    const CHANNEL = '6';
-    const scriptUrl = `https://cdn.tiny.cloud/1/${apiKey}/tinymce/${CHANNEL}/tinymce.min.js`;
+    const scriptUrl = `https://cdn.tiny.cloud/1/${apiKey}/tinymce/${TINYMCE_CHANNEL}/tinymce.min.js`;
     const handleScriptLoad = () => void initialiseEditor();
     const handleScriptError = () => setStatusSafe('error');
 
@@ -500,7 +858,9 @@ const TinyMceEditor: FC = () => {
         <button type="button" onClick={handleInsertPageBreakWidget} disabled={status !== 'ready'}>
           페이지 나누기 삽입
         </button>
-        <span style={{ color: '#64748b' }}>위젯을 더블클릭(또는 Enter/Space)하면 편집합니다.</span>
+        <span style={{ color: '#64748b' }}>
+          위젯 더블클릭(또는 Enter/Space) → 편집 • 프리뷰에서도 그래프/표가 보이도록 재렌더링합니다.
+        </span>
       </div>
 
       {apiKey === DEFAULT_API_KEY && (

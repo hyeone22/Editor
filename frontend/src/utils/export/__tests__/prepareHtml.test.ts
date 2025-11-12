@@ -32,7 +32,7 @@ describe('prepareHtml', () => {
   it('returns a fully serialised HTML document with widget snapshots applied', async () => {
     const { widget } = buildSource();
 
-    const { html, body, document: exportDocument } = await prepareHtml(widget, {
+    const { html, body, document: exportDocument, pageLayout } = await prepareHtml(widget, {
       title: 'PDF Export',
       stylesheets: ['https://example.com/print.css'],
       inlineStyles: ['body { background: #fff; }'],
@@ -57,6 +57,12 @@ describe('prepareHtml', () => {
     expect(Array.from(styles).some((style) => style.textContent?.includes('@page { size: 210mm'))).toBe(
       true,
     );
+    expect(pageLayout.margin).toMatchObject({
+      top: '18mm',
+      right: '16mm',
+      bottom: '18mm',
+      left: '16mm',
+    });
   });
 });
 

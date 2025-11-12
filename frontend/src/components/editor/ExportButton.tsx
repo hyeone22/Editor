@@ -36,13 +36,19 @@ const ExportButton = ({
     setIsExporting(true);
 
     try {
-      const { html } = await prepareHtml(sourceBody, {
+      const { html, pageLayout } = await prepareHtml(sourceBody, {
         title: documentTitle,
         inlineStyles,
         stylesheets,
       });
 
-      const { blob, filename: downloadName } = await exportPdf({ html, filename });
+      const { blob, filename: downloadName } = await exportPdf({
+        html,
+        filename,
+        pdfOptions: {
+          margin: pageLayout.margin,
+        },
+      });
       const url = URL.createObjectURL(blob);
 
       const anchor = document.createElement('a');

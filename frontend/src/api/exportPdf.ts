@@ -1,6 +1,14 @@
 export interface ExportPdfRequest {
   html: string;
   filename?: string;
+  pdfOptions?: {
+    margin?: {
+      top?: string;
+      right?: string;
+      bottom?: string;
+      left?: string;
+    };
+  };
 }
 
 export interface ExportPdfResult {
@@ -41,13 +49,13 @@ const normaliseFilename = (filename?: string): string => {
   return trimmed.toLowerCase().endsWith('.pdf') ? trimmed : `${trimmed}.pdf`;
 };
 
-export const exportPdf = async ({ html, filename }: ExportPdfRequest): Promise<ExportPdfResult> => {
+export const exportPdf = async ({ html, filename, pdfOptions }: ExportPdfRequest): Promise<ExportPdfResult> => {
   const response = await fetch('/api/export/pdf', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ html, filename }),
+    body: JSON.stringify({ html, filename, pdfOptions }),
   });
 
   if (!response.ok) {

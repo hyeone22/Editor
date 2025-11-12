@@ -1,4 +1,8 @@
-import { createPageLayoutStyles, type PageLayoutOverrides } from './pageLayout';
+import {
+  createPageLayoutStyles,
+  type PageLayoutConfig,
+  type PageLayoutOverrides,
+} from './pageLayout';
 import { serializeWidgets } from './serializeWidgets';
 
 export interface PrepareHtmlOptions {
@@ -30,6 +34,8 @@ export interface PrepareHtmlResult {
   body: HTMLElement;
   /** The export document instance that was generated. */
   document: Document;
+  /** The page layout configuration that was resolved for this export. */
+  pageLayout: PageLayoutConfig;
 }
 
 const createDocument = (source: HTMLElement, title?: string): Document => {
@@ -46,13 +52,17 @@ const collectInlineStyles = ({
   inlineStyles = [],
   includePrintStyles = true,
   pageLayout,
-}: PrepareHtmlOptions): string[] => {
+}: PrepareHtmlOptions): { inlineStyles: string[]; layout: PageLayoutConfig } => {
+  const layoutStyles = createPageLayoutStyles(pageLayout);
+
   if (!includePrintStyles) {
-    return [...inlineStyles];
+    return { inlineStyles: [...inlineStyles], layout: layoutStyles.layout };
   }
 
-  const layoutStyles = createPageLayoutStyles(pageLayout);
-  return [...layoutStyles.inlineStyles, ...inlineStyles];
+  return {
+    inlineStyles: [...layoutStyles.inlineStyles, ...inlineStyles],
+    layout: layoutStyles.layout,
+  };
 };
 
 const injectHeadAssets = (
@@ -99,7 +109,7 @@ export const prepareHtml = async (
 
   exportDocument.body.replaceChildren(clonedBody);
   const stylesheets = options.stylesheets ?? [];
-  const inlineStyles = collectInlineStyles(options);
+  const { inlineStyles, layout } = collectInlineStyles(options);
   injectHeadAssets(exportDocument, stylesheets, inlineStyles, options.charset);
 
   await serializeWidgets({
@@ -115,6 +125,7 @@ export const prepareHtml = async (
     html,
     body: clonedBody,
     document: exportDocument,
+    pageLayout: layout,
   };
 };
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { serializeWidgets } from '../serializeWidgets';
+import { safeToDataUrl, serializeWidgets } from '../serializeWidgets';
 
 describe('serializeWidgets', () => {
   const createGraphWidget = (doc: Document, id: string) => {
@@ -47,6 +47,9 @@ describe('serializeWidgets', () => {
     expect(image?.getAttribute('alt')).toBe('Test Graph');
     expect(image?.style.width).toBe('240px');
     expect(image?.style.height).toBe('160px');
+    expect(image?.style.maxWidth).toBe('100%');
+    expect(image?.getAttribute('loading')).toBe('lazy');
+    expect(image?.getAttribute('decoding')).toBe('async');
   });
 
   it('skips widgets when a serializer is not registered', async () => {
@@ -71,6 +74,29 @@ describe('serializeWidgets', () => {
     });
 
     expect(docB.body.querySelector('div[data-widget-type="text"]')).toBe(widgetB);
+  });
+});
+
+describe('safeToDataUrl', () => {
+  it('returns null when toDataURL throws and logs a warning', () => {
+    const canvas = document.createElement('canvas');
+    const error = new Error('conversion failed');
+    Object.defineProperty(canvas, 'toDataURL', {
+      configurable: true,
+      value: vi.fn(() => {
+        throw error;
+      }),
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(safeToDataUrl(canvas)).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[serializeWidgets] Failed to capture canvas snapshot.',
+      error,
+    );
+
+    warnSpy.mockRestore();
   });
 });
 

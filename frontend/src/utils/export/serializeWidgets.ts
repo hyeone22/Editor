@@ -34,7 +34,7 @@ const guardDocument = (doc: Document | undefined): Document => {
   throw new Error('A document instance is required to serialise widgets.');
 };
 
-const safeToDataUrl = (canvas: HTMLCanvasElement): string | null => {
+export const safeToDataUrl = (canvas: HTMLCanvasElement): string | null => {
   try {
     const result = canvas.toDataURL('image/png');
     return typeof result === 'string' && result.length > 0 ? result : null;
@@ -64,6 +64,7 @@ const applyImageSizing = (image: HTMLImageElement, canvas: HTMLCanvasElement) =>
 
   image.style.display = 'block';
   image.style.objectFit = 'contain';
+  image.style.maxWidth = '100%';
 };
 
 const graphWidgetSerializer: WidgetSerializer = ({ source, target, document }) => {
@@ -83,6 +84,8 @@ const graphWidgetSerializer: WidgetSerializer = ({ source, target, document }) =
   snapshotImage.src = dataUrl;
   snapshotImage.alt = target.getAttribute('data-widget-title') ?? '그래프 미리보기';
   snapshotImage.setAttribute('data-widget-static', 'graph');
+  snapshotImage.decoding = 'async';
+  snapshotImage.loading = 'lazy';
   applyImageSizing(snapshotImage, sourceCanvas);
 
   canvasHost.replaceChildren(snapshotImage);

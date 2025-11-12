@@ -1,3 +1,4 @@
+import { createPageLayoutStyles, type PageLayoutOverrides } from './pageLayout';
 import { serializeWidgets } from './serializeWidgets';
 
 export interface PrepareHtmlOptions {
@@ -7,6 +8,14 @@ export interface PrepareHtmlOptions {
   stylesheets?: string[];
   /** Inline CSS blocks that should be appended to the export document's head section. */
   inlineStyles?: string[];
+  /**
+   * Controls whether the default print stylesheet and page layout variables
+   * should be injected into the export document. Enabled by default so that
+   * the PDF output mirrors the in-app layout.
+   */
+  includePrintStyles?: boolean;
+  /** Optional overrides applied to the default page layout tokens. */
+  pageLayout?: PageLayoutOverrides;
   /**
    * HTML meta charset value. Pass `null` to skip emitting the charset meta tag.
    * Defaults to `utf-8`.
@@ -33,9 +42,25 @@ const createDocument = (source: HTMLElement, title?: string): Document => {
   return doc;
 };
 
-const injectHeadAssets = (doc: Document, options: PrepareHtmlOptions) => {
-  const { stylesheets = [], inlineStyles = [], charset } = options;
+const collectInlineStyles = ({
+  inlineStyles = [],
+  includePrintStyles = true,
+  pageLayout,
+}: PrepareHtmlOptions): string[] => {
+  if (!includePrintStyles) {
+    return [...inlineStyles];
+  }
 
+  const layoutStyles = createPageLayoutStyles(pageLayout);
+  return [...layoutStyles.inlineStyles, ...inlineStyles];
+};
+
+const injectHeadAssets = (
+  doc: Document,
+  stylesheets: string[],
+  inlineStyles: string[],
+  charset: PrepareHtmlOptions['charset'],
+) => {
   const head = doc.head ?? doc.getElementsByTagName('head')[0];
 
   if (charset !== null) {
@@ -73,7 +98,9 @@ export const prepareHtml = async (
   const clonedBody = sourceBody.cloneNode(true) as HTMLElement;
 
   exportDocument.body.replaceChildren(clonedBody);
-  injectHeadAssets(exportDocument, options);
+  const stylesheets = options.stylesheets ?? [];
+  const inlineStyles = collectInlineStyles(options);
+  injectHeadAssets(exportDocument, stylesheets, inlineStyles, options.charset);
 
   await serializeWidgets({
     sourceRoot: sourceBody,

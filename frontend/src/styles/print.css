@@ -1,0 +1,181 @@
+:root {
+  --print-page-width: 210mm;
+  --print-page-height: 297mm;
+  --print-page-background: #ffffff;
+  --print-page-canvas: #e2e8f0;
+  --print-page-ink: #0f172a;
+  --print-page-sub-ink: #475569;
+  --print-page-padding: 12mm;
+  --print-page-gap: 10mm;
+  --print-section-radius: 10px;
+  --print-section-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+  --print-section-border: 1px solid rgba(148, 163, 184, 0.32);
+  --print-section-padding: 16mm;
+  --print-section-gap: 6mm;
+  --print-highlight: #0ea5e9;
+  --print-highlight-ink: #0369a1;
+  --print-muted: #f1f5f9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--print-page-canvas);
+  color: var(--print-page-ink);
+  font-family: 'Noto Sans KR', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.6;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+main {
+  margin: 0 auto;
+  width: var(--print-page-width);
+  min-height: var(--print-page-height);
+  background: var(--print-page-background);
+  color: inherit;
+  padding: var(--print-page-padding);
+  display: flex;
+  flex-direction: column;
+  gap: var(--print-page-gap);
+  box-shadow: var(--print-section-shadow);
+}
+
+section {
+  background: var(--print-page-background);
+  border-radius: var(--print-section-radius);
+  border: var(--print-section-border);
+  box-shadow: var(--print-section-shadow);
+  padding: var(--print-section-padding);
+  display: flex;
+  flex-direction: column;
+  gap: var(--print-section-gap);
+}
+
+section h1,
+section h2,
+section h3,
+section h4,
+section h5,
+section h6 {
+  margin: 0;
+  color: var(--print-page-ink);
+}
+
+section p {
+  margin: 0;
+  color: var(--print-page-sub-ink);
+}
+
+code {
+  font-family: 'Fira Code', 'Source Code Pro', monospace;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.4rem;
+  background: rgba(14, 165, 233, 0.1);
+  border: 1px solid rgba(14, 165, 233, 0.25);
+  color: var(--print-highlight-ink);
+}
+
+.button-row {
+  display: inline-flex;
+  gap: 0.6rem;
+}
+
+button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.55rem 1.4rem;
+  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2563eb, var(--print-highlight));
+}
+
+.status-indicator,
+.status-indicator.error {
+  border-radius: 999px;
+  padding: 0.5rem 0.9rem;
+  font-weight: 600;
+}
+
+.status-indicator {
+  background: rgba(34, 197, 94, 0.18);
+  color: #15803d;
+}
+
+.status-indicator.error {
+  background: rgba(248, 113, 113, 0.18);
+  color: #b91c1c;
+}
+
+.tiny-editor .widget-block {
+  border: 1px dashed rgba(148, 163, 184, 0.7);
+  padding: 12mm;
+  border-radius: 12px;
+  background: rgba(241, 245, 249, 0.6);
+}
+
+[data-page-break='true'] {
+  break-after: page;
+  page-break-after: always;
+}
+
+[data-page-break='true'][data-keep-with-next='true'] {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+[data-page-break='true'][data-keep-with-next='true'] + * {
+  break-before: avoid-page;
+  page-break-before: auto;
+}
+
+.page-break-widget,
+[data-page-break='true'] {
+  min-height: 0;
+  border: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+  color: transparent !important;
+}
+
+.page-break-widget__rule {
+  border: none;
+  border-top: 1px dashed rgba(148, 163, 184, 0.75);
+  margin: 0;
+}
+
+@media screen {
+  body {
+    padding: 24px 0;
+  }
+
+  main {
+    box-shadow: var(--print-section-shadow);
+  }
+}
+
+@media print {
+  body {
+    background: var(--print-page-background);
+    padding: 0;
+  }
+
+  main {
+    width: auto;
+    min-height: unset;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  section {
+    box-shadow: none;
+    border: none;
+    padding: 12mm 0;
+    page-break-inside: avoid;
+  }
+}

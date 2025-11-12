@@ -49,8 +49,14 @@ describe('prepareHtml', () => {
     expect(link).toBeTruthy();
     expect(link?.getAttribute('href')).toBe('https://example.com/print.css');
 
-    const style = exportDocument.head.querySelector('style');
-    expect(style?.textContent).toContain('background: #fff');
+    const styles = exportDocument.head.querySelectorAll('style');
+    expect(styles.length).toBeGreaterThanOrEqual(3);
+    expect(Array.from(styles).some((style) => style.textContent?.includes('background: #fff'))).toBe(
+      true,
+    );
+    expect(Array.from(styles).some((style) => style.textContent?.includes('@page { size: 210mm'))).toBe(
+      true,
+    );
   });
 });
 

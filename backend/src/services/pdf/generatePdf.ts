@@ -1,5 +1,6 @@
 import type { PDFOptions, PuppeteerLifeCycleEvent, Page } from 'puppeteer';
 import { getBrowser } from '../../config/puppeteer';
+import { buildPdfOptions } from './options';
 
 export interface GeneratePdfOptions {
   pdf?: PDFOptions;
@@ -7,11 +8,6 @@ export interface GeneratePdfOptions {
 }
 
 const DEFAULT_WAIT_UNTIL: PuppeteerLifeCycleEvent = 'networkidle0';
-
-const DEFAULT_PDF_OPTIONS: PDFOptions = {
-  format: 'A4',
-  printBackground: true,
-};
 
 export const generatePdf = async (
   html: string,
@@ -32,12 +28,9 @@ export const generatePdf = async (
       waitUntil: waitUntil ?? DEFAULT_WAIT_UNTIL,
     });
 
-    await page.emulateMediaType('screen');
+    await page.emulateMediaType('print');
 
-    const pdfBuffer = await page.pdf({
-      ...DEFAULT_PDF_OPTIONS,
-      ...pdf,
-    });
+    const pdfBuffer = await page.pdf(buildPdfOptions(pdf));
     return pdfBuffer;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';

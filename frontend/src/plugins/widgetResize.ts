@@ -6,6 +6,7 @@ interface TinyMceEditor {
   on?: (eventName: string, callback: (...args: unknown[]) => void) => void;
   off?: (eventName: string, callback: (...args: unknown[]) => void) => void;
   fire?: (eventName: string, data?: Record<string, unknown>) => void;
+  dispatch?: (eventName: string, data?: Record<string, unknown>) => void; // TinyMCE 9 대비
   setDirty?: (state: boolean) => void;
   nodeChanged?: () => void;
 }
@@ -80,6 +81,160 @@ const applyInlinePos = (el: HTMLElement, left: number, top: number) => {
   el.style.top = toPx(top);
 };
 
+const DIRS: Dir[] = ['e', 's', 'se', 'w', 'n', 'ne', 'sw', 'nw'];
+
+/* ============================
+   공통: 사각형 유틸
+=============================== */
+
+function rect(el: HTMLElement) {
+  const r = el.getBoundingClientRect();
+  return { x: r.left + window.scrollX, y: r.top + window.scrollY, w: r.width, h: r.height };
+}
+
+function growRect(
+  r: { x: number; y: number; w: number; h: number },
+  m: number,
+): { x: number; y: number; w: number; h: number } {
+  return { x: r.x - m, y: r.y - m, w: r.w + m * 2, h: r.h + m * 2 };
+}
+
+function overlaps(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+) {
+  return !(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y);
+}
+
+function isFree(el: HTMLElement) {
+  return el.getAttribute('data-position') === 'free';
+}
+
+/* ============================
+   free 모드: 위로 콤팩트
+   - 상하좌우 8px 여백 유지
+=============================== */
+
+const COMPACT_MARGIN = 8;
+
+function compactUp(host: HTMLElement, root: Document | HTMLElement, step = 8) {
+  if (!isFree(host)) return;
+
+  const scope: HTMLElement[] = Array.from(
+    (root instanceof Document ? root.body : root).querySelectorAll<HTMLElement>(
+      '[data-widget-type][data-position="free"]',
+    ),
+  ).filter((el) => el !== host);
+
+  const style = window.getComputedStyle(host);
+
+  // transform에 translate가 있으면 left/top에 흡수
+  if (style.transform && style.transform !== 'none') {
+    const m = style.transform.match(/matrix\(([^)]+)\)/);
+    if (m) {
+      const parts = m[1].split(',').map(Number);
+      const tx = parts[4] || 0;
+      const ty = parts[5] || 0;
+      const curLeft = parseFloat(style.left || '0') || 0;
+      const curTop = parseFloat(style.top || '0') || 0;
+      host.style.transform = 'none';
+      host.style.left = `${curLeft + tx}px`;
+      host.style.top = `${curTop + ty}px`;
+    }
+  }
+
+  let top = parseFloat(host.style.top || '0') || 0;
+  let moved = false;
+
+  // 문서 최상단과도 8px 간격 유지
+  while (top > COMPACT_MARGIN) {
+    const probeTop = Math.max(COMPACT_MARGIN, top - step);
+    host.style.top = `${probeTop}px`;
+
+    // 8px 마진을 고려한 충돌 체크
+    const a = growRect(rect(host), COMPACT_MARGIN);
+    const hit = scope.some((other) => overlaps(a, growRect(rect(other), COMPACT_MARGIN)));
+
+    if (hit) {
+      host.style.top = `${top}px`; // 되돌리고 종료
+      break;
+    } else {
+      top = probeTop;
+      moved = true;
+    }
+  }
+
+  if (moved) {
+    host.dispatchEvent(new CustomEvent('widget:changed', { bubbles: true }));
+  }
+}
+
+/* ============================
+   flow 모드: 스택 콤팩션
+   - 빈 <p> 제거 + 8px 간격
+=============================== */
+
+const STACK_GAP = 8;
+
+function isEmptyParagraph(node: Node): boolean {
+  if (!(node instanceof HTMLElement)) return false;
+  if (node.tagName !== 'P') return false;
+  const html = node.innerHTML
+    .trim()
+    .replace(/&nbsp;|<br\s*\/?>/gi, '')
+    .trim();
+  return html === '';
+}
+
+function nextNonWhitespaceSibling(n: Node | null): Node | null {
+  let cur = n?.nextSibling ?? null;
+  while (cur && cur.nodeType === Node.TEXT_NODE && cur.textContent?.trim() === '') {
+    cur = cur.nextSibling;
+  }
+  return cur;
+}
+
+/** flow 모드 위젯들 사이의 빈 단락 제거 & margin-block을 8px로 강제 */
+function compactStackFlow(rootEl: HTMLElement) {
+  const hosts = Array.from(
+    rootEl.querySelectorAll<HTMLElement>('[data-widget-type]:not([data-position="free"])'),
+  );
+
+  // 1) 위젯 다음의 빈 <p>들 제거
+  hosts.forEach((host) => {
+    let sib = nextNonWhitespaceSibling(host);
+    while (sib && isEmptyParagraph(sib)) {
+      const toRemove = sib;
+      sib = nextNonWhitespaceSibling(sib);
+      toRemove.parentNode?.removeChild(toRemove);
+    }
+  });
+
+  // 2) 위젯들 간격을 8px로 정규화
+  hosts.forEach((host) => {
+    host.style.marginTop = toPx(STACK_GAP);
+    host.style.marginBottom = toPx(STACK_GAP);
+  });
+}
+
+/* ============================
+   오버레이 루트 생성
+=============================== */
+const makeOverlayRoot = (doc: Document) => {
+  const root = doc.createElement('div');
+  Object.assign(root.style, {
+    position: 'fixed',
+    inset: '0',
+    pointerEvents: 'none', // 기본 막고, 핸들만 이벤트 허용
+    zIndex: '2147483647', // 최상단
+  } as CSSStyleDeclaration);
+  doc.body.appendChild(root);
+  return root;
+};
+
+/* ============================
+   커밋(사이즈/좌표 반영)
+=============================== */
 const commitSizeAndPos = (
   el: HTMLElement,
   editor: TinyMceEditor,
@@ -100,27 +255,28 @@ const commitSizeAndPos = (
   (c as Record<string, unknown>).style = st;
   cfgSet(el, c);
 
+  // free 모드면 위로 콤팩트 (8px 여백)
+  try {
+    compactUp(el, el.ownerDocument || document);
+  } catch {}
+
+  // flow 모드는 빈 <p> 제거하고 8px 간격으로 붙이기
+  try {
+    const doc = el.ownerDocument || document;
+    compactStackFlow(doc.body);
+  } catch {}
+
+  // 변경 알림 (TinyMCE 9 대비: dispatch 우선, fire 폴백)
   el.dispatchEvent(new CustomEvent('widget:changed', { bubbles: true }));
+  (editor as any).dispatch?.('change');
   editor.fire?.('change');
   editor.setDirty?.(true);
   editor.nodeChanged?.();
 };
 
-const DIRS: Dir[] = ['e', 's', 'se', 'w', 'n', 'ne', 'sw', 'nw'];
-
-// 오버레이 레이어 하나 생성(iframe 문서의 body 위)
-const makeOverlayRoot = (doc: Document) => {
-  const root = doc.createElement('div');
-  Object.assign(root.style, {
-    position: 'fixed',
-    inset: '0',
-    pointerEvents: 'none', // 기본 막고, 핸들만 이벤트 허용
-    zIndex: '2147483647', // 최상단
-  } as CSSStyleDeclaration);
-  doc.body.appendChild(root);
-  return root;
-};
-
+/* ============================
+   메인: 리사이즈 부착
+=============================== */
 export default function attachWidgetResize(
   editor: TinyMceEditor,
   options: WidgetResizeOptions = {},
@@ -145,9 +301,9 @@ export default function attachWidgetResize(
   const records = new Map<HTMLElement, HandleEls>();
 
   const placeHandles = (widget: HTMLElement) => {
-    const rect = widget.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
+    const r = widget.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
 
     const setPos = (el: HTMLElement, left: number, top: number) => {
       el.style.left = toPx(left);
@@ -157,20 +313,20 @@ export default function attachWidgetResize(
     const hs = records.get(widget)!;
 
     // 각 방향 좌표 계산 (overlay는 fixed라서 viewport 기준)
-    hs.e && setPos(hs.e, rect.right, cy);
-    hs.s && setPos(hs.s, cx, rect.bottom);
-    hs.se && setPos(hs.se, rect.right, rect.bottom);
-    hs.w && setPos(hs.w, rect.left, cy);
-    hs.n && setPos(hs.n, cx, rect.top);
-    hs.ne && setPos(hs.ne, rect.right, rect.top);
-    hs.sw && setPos(hs.sw, rect.left, rect.bottom);
-    hs.nw && setPos(hs.nw, rect.left, rect.top);
+    hs.e && setPos(hs.e, r.right, cy);
+    hs.s && setPos(hs.s, cx, r.bottom);
+    hs.se && setPos(hs.se, r.right, r.bottom);
+    hs.w && setPos(hs.w, r.left, cy);
+    hs.n && setPos(hs.n, cx, r.top);
+    hs.ne && setPos(hs.ne, r.right, r.top);
+    hs.sw && setPos(hs.sw, r.left, r.bottom);
+    hs.nw && setPos(hs.nw, r.left, r.top);
   };
 
   const beginResize = (widget: HTMLElement, dir: Dir, ev: PointerEvent | MouseEvent) => {
     const free = widget.getAttribute('data-position') === 'free';
     if (!free && (dir === 'w' || dir === 'n' || dir === 'nw' || dir === 'ne' || dir === 'sw')) {
-      return; // flow 모드 제한
+      return; // flow 모드에서는 좌/상 조정 불가
     }
 
     ev.preventDefault?.();
@@ -229,6 +385,7 @@ export default function attachWidgetResize(
         if (free && dir.includes('n')) newTop = startPos.top + (startSize.height - newH);
       }
 
+      // 최소/최대 크기 클램프
       newW = Math.min(Math.max(newW, minWidth), maxWidth);
       newH = Math.min(Math.max(newH, minHeight), maxHeight);
 
@@ -262,7 +419,12 @@ export default function attachWidgetResize(
               top: parsePx(widget.style.top) ?? widget.offsetTop,
             }
           : undefined;
+
+      // 커밋 (내부에서 compactUp/compactStackFlow 호출)
       commitSizeAndPos(widget, editor, r.width, r.height, pos);
+
+      // compact 후 위치가 바뀌었을 수 있으니 핸들 재정렬
+      placeHandles(widget);
     };
 
     if (window.PointerEvent) {
@@ -282,7 +444,7 @@ export default function attachWidgetResize(
 
     const free = widget.getAttribute('data-position') === 'free';
     const dirs = free ? DIRS : (['e', 's', 'se'] as Dir[]);
-    const handleMap: HandleEls = {};
+    const handleMap: Partial<Record<Dir, HTMLSpanElement>> = {};
 
     dirs.forEach((dir) => {
       const el = doc.createElement('span');
@@ -356,7 +518,6 @@ export default function attachWidgetResize(
     });
   };
 
-  // 스크롤/리사이즈/노드변경에 맞춰 위치 갱신
   const onScroll = () => records.forEach((_, w) => placeHandles(w));
   const onResize = () => records.forEach((_, w) => placeHandles(w));
 

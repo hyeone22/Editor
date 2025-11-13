@@ -38,10 +38,11 @@ const App = () => {
           <KCBChecklist />
         </section>
         <section className="editor-card">
-          <h2>TinyMCE 에디터 미리보기</h2>
+          <h2>KCB 프로젝트 PoC</h2>
           <p>
-            기본 TinyMCE 인스턴스를 React 애플리케이션과 연동했습니다. 아래 편집기에서 서식 버튼을
-            눌러 보고, Tiny Cloud API 키를 설정하면 정식 CDN을 통해 스크립트를 로드할 수 있습니다.
+            기본 TinyMCE 인스턴스를 React 애플리케이션과 연동했습니다. <br /> 아래 편집기에서 서식
+            버튼을 눌러 보고, Tiny Cloud API 키를 설정하면 정식 CDN을 통해 스크립트를 로드할 수
+            있습니다.
           </p>
           <TinyMceEditor />
         </section>

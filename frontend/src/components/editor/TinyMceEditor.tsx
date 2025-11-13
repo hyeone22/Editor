@@ -15,7 +15,8 @@ type EditorStatus = 'loading' | 'ready' | 'error';
 
 const TINYMCE_SCRIPT_ID = 'tinymce-cdn-script';
 const DEFAULT_API_KEY = 'no-api-key';
-const TINYMCE_CHANNEL = '6';
+// ✅ 프리미엄 애드온 사용을 위해 TinyMCE v8 채널 사용
+const TINYMCE_CHANNEL = '8';
 
 // === Upload ===
 const UPLOADCARE_PUBLIC_KEY = 'a3920bdf61b6edc8ea74';
@@ -488,7 +489,6 @@ const TinyMceEditor: FC = () => {
         '.widget-block{ cursor: default !important; }',
 
         /* ========= WIDGET HOST: block으로 고정 (정렬용) ========= */
-        // 기존 inline-block 규칙은 제거
         '[data-widget-type]{ position:relative; display:block; width:100%; max-width:100%; min-width:220px; box-sizing:border-box; margin:10px 12px 10px 0; break-inside:avoid; -webkit-column-break-inside:avoid; }',
 
         /* free 모드일 때만 절대배치 */
@@ -671,13 +671,14 @@ const TinyMceEditor: FC = () => {
 
         const result = await window.tinymce.init({
           target,
-          height: 560,
+          height: 1080,
           branding: false,
 
           // ⬇ 커스텀 요소를 TinyMCE가 제대로 블록으로 인식하도록
           custom_elements: 'div[data-widget-type]',
           valid_children: '+body[div],+div[div]',
 
+          // ✅ v8 + 프리미엄 애드온
           plugins: [
             'advlist autolink lists link table code preview searchreplace visualblocks fullscreen insertdatetime',
             'importcss',
@@ -688,16 +689,22 @@ const TinyMceEditor: FC = () => {
             'quickbars',
             'help',
             'widgetBlocks',
+            'importword exportword exportpdf',
           ].join(' '),
 
           menubar: 'file edit view insert format tools table help',
           toolbar_mode: 'wrap',
           toolbar_sticky: true,
 
-          // 업로드
+          // ===== 이미지/URL 설정 =====
           automatic_uploads: true,
           images_reuse_filename: true,
-          paste_data_images: true,
+          // data URL 본문 삽입 방지(권장)
+          paste_data_images: false,
+          // Tiny가 URL을 변환하지 않도록
+          convert_urls: false,
+          urlconverter_callback: (url: string) => url,
+
           file_picker_types: 'image',
           file_picker_callback,
           images_upload_handler,
@@ -706,11 +713,15 @@ const TinyMceEditor: FC = () => {
             'undo redo | blocks fontfamily fontsize lineheight | bold italic underline forecolor backcolor |',
             'alignleft aligncenter alignright alignjustify | bullist numlist outdent indent |',
             'link table | image media | codesample charmap pagebreak | searchreplace |',
-            'removeformat | preview fullscreen | code | help',
+            'importword exportword exportpdf | removeformat | preview fullscreen | code | help',
           ].join(' '),
 
           menu: {
-            file: { title: 'File', items: 'preview print | newdocument restoredraft | fullscreen' },
+            file: {
+              title: 'File',
+              items:
+                'preview print | newdocument restoredraft | fullscreen | importword exportword exportpdf',
+            },
             edit: {
               title: 'Edit',
               items: 'undo redo | cut copy paste | selectall | searchreplace',
@@ -892,6 +903,7 @@ const TinyMceEditor: FC = () => {
       script.id = TINYMCE_SCRIPT_ID;
       script.src = scriptUrl;
       script.referrerPolicy = 'origin';
+      script.crossOrigin = 'anonymous';
       script.addEventListener('load', handleScriptLoad);
       script.addEventListener('error', handleScriptError);
       document.head.appendChild(script);
@@ -918,7 +930,7 @@ const TinyMceEditor: FC = () => {
         <p className={`editor-status editor-status--${status}`}>
           {status === 'loading' && 'TinyMCE 스크립트를 불러오는 중입니다...'}
           {status === 'error' &&
-            '에디터를 초기화하지 못했습니다. 네트워크와 API 키 설정을 확인해주세요.'}
+            '에디터를 초기화하지 못했습니다. 네트워크와 API 키/도메인 설정을 확인해주세요.'}
         </p>
       )}
 

@@ -4,8 +4,8 @@ import react from '@vitejs/plugin-react';
 const repository = process.env.GITHUB_REPOSITORY;
 const inferredBasePath = repository ? `/${repository.split('/').pop()}/` : '/';
 
-export default defineConfig({
-  base: process.env.NODE_ENV === 'production' ? inferredBasePath : '/',
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? inferredBasePath : '/',
   plugins: [react()],
   server: {
     port: 5173,
@@ -24,4 +24,4 @@ export default defineConfig({
     globals: true,
     restoreMocks: true
   }
-});
+}));
